@@ -1,6 +1,7 @@
 # Inventory Platform v2
 
-A clean rebuild of the React Native inventory and sales application, using the existing Supabase project as the system of record.
+A clean rebuild of the React Native inventory and sales application, using the
+existing Supabase project as the system of record.
 
 ## Foundation
 

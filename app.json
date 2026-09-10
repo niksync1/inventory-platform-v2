@@ -1,0 +1,15 @@
+{
+  "expo": {
+    "name": "inventory-platform-v2",
+    "slug": "inventory-platform-v2",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "ios": {
+      "supportsTablet": true
+    },
+    "android": {
+      "predictiveBackGestureEnabled": false
+    }
+  }
+}
