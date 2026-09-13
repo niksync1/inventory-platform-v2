@@ -32,3 +32,11 @@ Run `npm run typecheck` and `npm test`.
 7. Add wholesale/retail pricing, Paystack routing, and administration.
 
 Existing production data will not be mutated until the database audit is complete.
+
+## Multi-tenant database foundation
+
+The `multi-tenant-foundation` work adds an ordered Supabase baseline and forward
+migrations for tenants, memberships, locations, customers, location inventory,
+tenant-aware RPCs, RLS, grants, and database tests. Offline operations are isolated
+by both authenticated user and tenant. See
+`docs/database-audit.md` before applying any migration to a linked project.

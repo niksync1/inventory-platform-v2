@@ -4,6 +4,8 @@ export type StockMovementType = 'stock_in' | 'stock_out';
 export interface OfflineOperation {
   id: string;
   userId: string;
+  tenantId: string;
+  locationId: string;
   productId: string;
   type: StockMovementType;
   quantity: number;
@@ -14,7 +16,8 @@ export interface OfflineOperation {
   lastError: string | null;
 }
 
-export function offlineQueueKey(userId: string): string {
+export function offlineQueueKey(userId: string, tenantId: string): string {
   if (!userId.trim()) throw new Error('A user ID is required for offline queue isolation.');
-  return `offline:operations:v2:${userId}`;
+  if (!tenantId.trim()) throw new Error('A tenant ID is required for offline queue isolation.');
+  return `offline:operations:v3:${userId}:${tenantId}`;
 }
