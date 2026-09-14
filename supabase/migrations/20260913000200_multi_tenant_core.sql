@@ -265,8 +265,20 @@ create index orders_tenant_customer_created_at_idx
 update public.products set stock_quantity = 0 where stock_quantity is null;
 alter table public.products alter column stock_quantity set default 0;
 alter table public.products alter column stock_quantity set not null;
-alter table public.products
-  add constraint products_stock_quantity_nonnegative check (stock_quantity >= 0);
+do $$
+begin
+  if not exists (
+    select 1
+    from pg_constraint
+    where conrelid = 'public.products'::regclass
+      and conname = 'products_stock_quantity_nonnegative'
+  ) then
+    alter table public.products
+      add constraint products_stock_quantity_nonnegative
+      check (stock_quantity >= 0);
+  end if;
+end;
+$$;
 
 alter table public.profiles drop constraint profiles_role_check;
 alter table public.profiles alter column role set default 'customer';
