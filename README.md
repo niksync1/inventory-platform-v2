@@ -40,3 +40,10 @@ migrations for tenants, memberships, locations, customers, location inventory,
 tenant-aware RPCs, RLS, grants, and database tests. Offline operations are isolated
 by both authenticated user and tenant. See
 `docs/database-audit.md` before applying any migration to a linked project.
+
+## Tenant onboarding
+
+The application restores Supabase sessions, loads active tenant memberships,
+selects an active warehouse/location, and scopes inventory summaries and RPC
+inputs to that context. Tenant selection is stored per user. Signing out removes
+that user's saved selection and offline operation queues from the device.

@@ -17,6 +17,19 @@ export interface TenantMembership {
   status: MembershipStatus;
 }
 
+export interface Location {
+  id: string;
+  tenantId: string;
+  name: string;
+  code: string;
+  isActive: boolean;
+}
+
+export interface TenantAccess {
+  tenant: Tenant;
+  membership: TenantMembership;
+}
+
 export interface TenantContext {
   tenant: Tenant;
   membership: TenantMembership;

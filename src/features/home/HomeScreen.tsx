@@ -1,0 +1,20 @@
+import { useEffect, useMemo, useState } from 'react';
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { canManageInventory } from '../../core/tenancy/permissions';
+import { colors, spacing } from '../../shared/theme';
+import { useAuth } from '../auth/AuthProvider';
+import { loadInventorySummary, type InventorySummary } from '../inventory/inventoryApi';
+import { useTenant } from '../tenancy/TenantProvider';
+export function HomeScreen({ onChangeContext }: { onChangeContext: () => void }) {
+  const { session, signOut } = useAuth(); const { context, locations } = useTenant(); const [summary, setSummary] = useState<InventorySummary | null>(null); const [error, setError] = useState<string | null>(null);
+  const location = useMemo(() => locations.find(item => item.id === context?.locationId), [context, locations]);
+  useEffect(() => { if (!context) return; setSummary(null); setError(null); void loadInventorySummary(context.tenant.id, context.locationId).then(setSummary).catch(caught => setError(caught instanceof Error ? caught.message : 'Unable to load inventory.')); }, [context]);
+  if (!context) return null;
+  return <ScrollView contentContainerStyle={styles.container}><Text style={styles.eyebrow}>CURRENT WORKSPACE</Text><Text style={styles.title}>{context.tenant.name}</Text><Text style={styles.subtitle}>{location?.name} · {context.membership.role}</Text><Pressable onPress={onChangeContext}><Text style={styles.link}>Change business or location</Text></Pressable>
+    <View style={styles.grid}><Metric label="Products" value={summary?.products} /><Metric label="Units here" value={summary?.unitsAtLocation} /><Metric label="Transactions" value={summary?.transactionsAtLocation} /></View>
+    {!summary && !error ? <ActivityIndicator color={colors.primary} style={styles.loader} /> : null}{error ? <Text style={styles.error}>{error}</Text> : null}
+    <View style={styles.card}><Text style={styles.cardTitle}>Tenant isolation active</Text><Text style={styles.cardBody}>Data is scoped to {context.tenant.slug} and {location?.code}.</Text><Text style={styles.cardBody}>{canManageInventory(context.membership.role) ? 'Your role can perform inventory operations.' : 'Your role has read-only inventory access.'}</Text></View>
+    <Text style={styles.email}>{session?.user.email}</Text><Pressable onPress={() => void signOut()} style={styles.outline}><Text style={styles.outlineText}>Sign out</Text></Pressable></ScrollView>;
+}
+function Metric({ label, value }: { label: string; value: number | undefined }) { return <View style={styles.metric}><Text style={styles.metricValue}>{value ?? '—'}</Text><Text style={styles.meta}>{label}</Text></View>; }
+const styles = StyleSheet.create({ container: { padding: spacing.xl }, eyebrow: { color: colors.primary, fontSize: 12, fontWeight: '700', letterSpacing: 1.5 }, title: { color: colors.text, fontSize: 32, fontWeight: '700', marginTop: spacing.sm }, subtitle: { color: colors.textMuted, fontSize: 16, marginTop: spacing.xs }, link: { color: colors.primary, fontWeight: '700', marginTop: spacing.md }, grid: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.xl }, metric: { backgroundColor: colors.surface, borderColor: colors.border, borderRadius: 12, borderWidth: 1, flex: 1, padding: spacing.md }, metricValue: { color: colors.text, fontSize: 24, fontWeight: '700' }, meta: { color: colors.textMuted, fontSize: 12, marginTop: spacing.xs }, loader: { marginTop: spacing.lg }, error: { color: '#B42318', marginTop: spacing.md }, card: { backgroundColor: colors.surface, borderColor: colors.border, borderRadius: 16, borderWidth: 1, marginTop: spacing.xl, padding: spacing.lg }, cardTitle: { color: colors.text, fontSize: 16, fontWeight: '700' }, cardBody: { color: colors.textMuted, lineHeight: 21, marginTop: spacing.sm }, email: { color: colors.textMuted, marginTop: spacing.xl, textAlign: 'center' }, outline: { alignItems: 'center', borderColor: colors.primary, borderRadius: 12, borderWidth: 1, marginTop: spacing.md, padding: spacing.md }, outlineText: { color: colors.primary, fontWeight: '700' } });
