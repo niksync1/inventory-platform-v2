@@ -1,5 +1,35 @@
+begin;
+
 -- Additive multi-tenant foundation for the existing single-tenant database.
 -- This migration intentionally preserves all current business data.
+
+set local search_path = pg_catalog, public, pg_temp;
+lock table public.products in access exclusive mode;
+do $$
+declare
+  existing record;
+begin
+  if exists (select 1 from public.products where stock_quantity is null or stock_quantity < 0) then
+    raise exception 'Cannot migrate inventory: product stock must be non-null and nonnegative';
+  end if;
+  select contype, pg_get_expr(conbin, conrelid) as expression, connoinherit
+  into existing from pg_constraint
+  where conrelid = 'public.products'::regclass
+    and conname = 'products_stock_quantity_nonnegative';
+  if found then
+    -- Accept the canonical expression of the audited constraint, fail closed otherwise.
+    if existing.contype <> 'c' or existing.connoinherit
+       or existing.expression is null
+       or existing.expression not in ('(stock_quantity >= 0)', '(0 <= stock_quantity)') then
+      raise exception 'Incompatible products_stock_quantity_nonnegative constraint: %', existing.expression;
+    end if;
+    alter table public.products validate constraint products_stock_quantity_nonnegative;
+  else
+    alter table public.products add constraint products_stock_quantity_nonnegative
+      check (stock_quantity >= 0);
+  end if;
+end;
+$$;
 
 create table public.tenants (
   id uuid primary key default gen_random_uuid(),
@@ -166,7 +196,7 @@ select
   products.tenant_id,
   '00000000-0000-4000-8000-000000000002',
   products.id,
-  greatest(coalesce(products.stock_quantity, 0), 0)
+  products.stock_quantity
 from public.products
 on conflict (tenant_id, location_id, product_id) do nothing;
 
@@ -208,6 +238,12 @@ alter table public.products
   add constraint products_tenant_id_id_key unique (tenant_id, id);
 alter table public.customers
   add constraint customers_tenant_id_id_key unique (tenant_id, id);
+alter table public.orders
+  add constraint orders_tenant_id_id_key unique (tenant_id, id);
+alter table public.order_tracking
+  drop constraint order_tracking_order_id_fkey,
+  add constraint order_tracking_tenant_order_fkey
+  foreign key (tenant_id, order_id) references public.orders(tenant_id, id) on delete cascade;
 alter table public.inventory_levels
   add constraint inventory_levels_tenant_location_fkey
   foreign key (tenant_id, location_id) references public.locations(tenant_id, id) on delete cascade;
@@ -262,23 +298,8 @@ create index customers_auth_user_id_idx
 create index orders_tenant_customer_created_at_idx
   on public.orders (tenant_id, customer_id, created_at desc);
 
-update public.products set stock_quantity = 0 where stock_quantity is null;
 alter table public.products alter column stock_quantity set default 0;
 alter table public.products alter column stock_quantity set not null;
-do $$
-begin
-  if not exists (
-    select 1
-    from pg_constraint
-    where conrelid = 'public.products'::regclass
-      and conname = 'products_stock_quantity_nonnegative'
-  ) then
-    alter table public.products
-      add constraint products_stock_quantity_nonnegative
-      check (stock_quantity >= 0);
-  end if;
-end;
-$$;
 
 alter table public.profiles drop constraint profiles_role_check;
 alter table public.profiles alter column role set default 'customer';
@@ -309,3 +330,5 @@ comment on column public.profiles.role is
   'Legacy global role retained during transition. Tenant authorization uses tenant_memberships.role.';
 comment on column public.products.stock_quantity is
   'Compatibility aggregate across locations; inventory_levels is the location-level source of truth.';
+
+commit;

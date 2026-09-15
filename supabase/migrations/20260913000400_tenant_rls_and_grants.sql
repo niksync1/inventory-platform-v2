@@ -1,3 +1,5 @@
+begin;
+
 drop policy if exists "Admins can delete categories" on public.categories;
 drop policy if exists "Admins can insert categories" on public.categories;
 drop policy if exists "Admins can update categories" on public.categories;
@@ -10,11 +12,23 @@ drop policy if exists "Authenticated users can read all transactions" on public.
 drop policy if exists "Users can view own orders" on public.orders;
 drop policy if exists "Order tracking is viewable" on public.order_tracking;
 drop policy if exists "Admins can read all profiles" on public.profiles;
+drop policy if exists "System can insert profiles" on public.profiles;
+drop policy if exists "Users can read own profile" on public.profiles;
+drop policy if exists "Users can update own profile" on public.profiles;
+drop policy if exists "Users can view own profile" on public.users;
 
-create policy "Public can read active products"
+-- RESTRICT is deliberate: unexpected dependencies must stop this migration.
+drop function public.is_admin();
+drop function public.can_manage_inventory();
+
+create policy "Users can update own profile"
+on public.profiles for update to authenticated
+using (auth.uid() = id) with check (auth.uid() = id);
+
+create policy "Members can read tenant products"
 on public.products for select
-to anon, authenticated
-using (is_active and tenant_id is not null);
+to authenticated
+using (public.is_tenant_member(tenant_id));
 create policy "Tenant product managers can insert"
 on public.products for insert to authenticated
 with check (public.has_tenant_role(tenant_id, array['owner', 'admin', 'manager']));
@@ -26,9 +40,9 @@ create policy "Tenant admins can delete products"
 on public.products for delete to authenticated
 using (public.has_tenant_role(tenant_id, array['owner', 'admin']));
 
-create policy "Public can read active categories"
-on public.categories for select to anon, authenticated
-using (is_active and tenant_id is not null);
+create policy "Members can read tenant categories"
+on public.categories for select to authenticated
+using (public.is_tenant_member(tenant_id));
 create policy "Tenant category managers can insert"
 on public.categories for insert to authenticated
 with check (public.has_tenant_role(tenant_id, array['owner', 'admin', 'manager']));
@@ -49,11 +63,11 @@ using (public.is_tenant_member(tenant_id));
 
 create policy "Members can read their tenants"
 on public.tenants for select to authenticated
-using (public.is_tenant_member(id));
+using (public.is_platform_admin() or public.is_tenant_member(id));
 create policy "Tenant admins can update tenants"
 on public.tenants for update to authenticated
-using (public.has_tenant_role(id, array['owner', 'admin']))
-with check (public.has_tenant_role(id, array['owner', 'admin']));
+using (public.is_platform_admin() or public.has_tenant_role(id, array['owner', 'admin']))
+with check (public.is_platform_admin() or public.has_tenant_role(id, array['owner', 'admin']));
 
 create policy "Members can read memberships"
 on public.tenant_memberships for select to authenticated
@@ -128,17 +142,25 @@ create policy "Order managers can read tenant tracking"
 on public.order_tracking for select to authenticated
 using (public.can_manage_orders(tenant_id));
 
-revoke all on all tables in schema public from anon, authenticated;
-grant select on public.products, public.categories to anon, authenticated;
+revoke all on all tables in schema public from public, anon, authenticated;
+grant select on public.products, public.categories to authenticated;
 grant select on public.tenants, public.locations, public.tenant_memberships,
   public.inventory_levels, public.inventory_transactions, public.customers,
   public.orders, public.order_tracking, public.profiles to authenticated;
 grant insert, update, delete on public.products, public.categories,
   public.locations, public.tenant_memberships, public.customers to authenticated;
 grant update on public.tenants to authenticated;
-grant update on public.profiles to authenticated;
+grant update (name, avatar_url) on public.profiles to authenticated;
 
-revoke all on all functions in schema public from public, anon, authenticated;
+-- Stock is writable only under the isolated RPC owner, never direct API DML.
+revoke all on public.products from authenticated;
+grant select, delete on public.products to authenticated;
+grant insert (id, tenant_id, name, slug, description, price, compare_at_price,
+  category, images, metadata, is_active, barcode) on public.products to authenticated;
+grant update (name, slug, description, price, compare_at_price,
+  category, images, metadata, is_active, barcode) on public.products to authenticated;
+
+revoke all on all functions in schema public from public, anon, authenticated, service_role;
 grant execute on function public.is_platform_admin() to authenticated;
 grant execute on function public.has_tenant_role(uuid, text[]) to authenticated;
 grant execute on function public.is_tenant_member(uuid) to authenticated;
@@ -152,3 +174,37 @@ grant execute on function public.stock_out(uuid, uuid, uuid, integer, text, text
 alter default privileges for role postgres in schema public revoke all on tables from anon, authenticated;
 alter default privileges for role postgres in schema public revoke all on functions from anon, authenticated;
 alter default privileges for role postgres in schema public revoke all on sequences from anon, authenticated;
+alter default privileges for role postgres revoke execute on functions from public, anon, authenticated;
+
+-- Backend access stays explicit. Stock-table triggers still require the RPC role.
+grant all on all tables in schema public to service_role;
+revoke truncate on public.products, public.inventory_levels, public.inventory_transactions from service_role;
+grant execute on function public.is_platform_admin(), public.has_tenant_role(uuid, text[]),
+  public.is_tenant_member(uuid), public.can_view_profile(uuid), public.can_manage_inventory(uuid),
+  public.can_manage_orders(uuid), public.create_tenant(text, text),
+  public.stock_in(uuid, uuid, uuid, integer, text, text),
+  public.stock_out(uuid, uuid, uuid, integer, text, text, text) to service_role;
+
+grant usage on schema public to inventory_rpc_executor;
+grant execute on function public.inventory_request_context() to inventory_rpc_executor;
+grant execute on function public.can_manage_inventory(uuid) to inventory_rpc_executor;
+grant select on public.tenants, public.locations, public.products,
+  public.inventory_levels, public.inventory_transactions to inventory_rpc_executor;
+grant update (stock_quantity, updated_at) on public.products to inventory_rpc_executor;
+grant insert, update on public.inventory_levels to inventory_rpc_executor;
+grant insert on public.inventory_transactions to inventory_rpc_executor;
+create policy "Inventory RPC reads tenants" on public.tenants for select to inventory_rpc_executor using (true);
+create policy "Inventory RPC reads locations" on public.locations for select to inventory_rpc_executor using (true);
+create policy "Inventory RPC reads products" on public.products for select to inventory_rpc_executor using (true);
+create policy "Inventory RPC updates products" on public.products for update to inventory_rpc_executor using (true) with check (true);
+create policy "Inventory RPC manages levels" on public.inventory_levels for all to inventory_rpc_executor using (true) with check (true);
+create policy "Inventory RPC reads transactions" on public.inventory_transactions for select to inventory_rpc_executor using (true);
+create policy "Inventory RPC inserts transactions" on public.inventory_transactions for insert to inventory_rpc_executor with check (true);
+
+-- Ownership transfer needs CREATE temporarily; the role cannot create objects afterward.
+grant create on schema public to inventory_rpc_executor;
+alter function public.stock_in(uuid, uuid, uuid, integer, text, text) owner to inventory_rpc_executor;
+alter function public.stock_out(uuid, uuid, uuid, integer, text, text, text) owner to inventory_rpc_executor;
+revoke create on schema public from inventory_rpc_executor;
+
+commit;
