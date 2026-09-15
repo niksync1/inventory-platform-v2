@@ -1,0 +1,110 @@
+PENDING MIGRATION HARDENING - VALIDATION
+Date: 2026-09-15
+
+Scope
+-----
+Updated pending migrations 20260913000200, 20260913000300 and 20260913000400.
+No live Supabase database calls or modifications were made during implementation.
+All database execution targeted local Docker container
+supabase_db_inventory-platform-v2-work using the local Supabase CLI.
+Existing staged .gitignore changes were left untouched.
+
+Migration diff: audit/pending-migration-hardening.diff
+
+Implemented decisions
+---------------------
+00200:
+- Explicit transaction and product-table lock around stock validation/backfill.
+- Reject null/negative stock without clamping; copy stock_quantity exactly.
+- Preserve and validate an existing equivalent named stock check; reject
+  incompatible definitions clearly; create the check when absent.
+- Add orders(tenant_id,id) uniqueness and composite tenant/order tracking FK.
+
+00300:
+- Revoke default PUBLIC function execution before creating new functions.
+- Tenant operational helpers require trial/active tenants, including platform
+  administrators; administrative tenant access can still reactivate tenants.
+- Harden search paths with pg_catalog first and pg_temp last.
+- Dedicated non-login inventory_rpc_executor owns stock RPCs; API roles are
+  not members. A narrowly granted context adapter reads managed auth context.
+- Guard direct product stock changes and inventory-level/ledger writes.
+- Products must start at zero; subsequent movements use stock RPCs and ledger.
+- Customer self-updates allow email, full_name, phone and default_address only;
+  identity/tenant cannot change and business fields require order management.
+- Tenant display changes allow name/slug; plan/status require platform admin
+  authorization for user-facing requests. Trusted service-role tasks retain
+  administrative provisioning access.
+- Stock retries lock by tenant/operation ID and compare tenant, location,
+  product, signed quantity and operation type. Null/invalid stock-out types fail.
+
+00400:
+- Staff SELECT policies include inactive products/categories in their tenant.
+- No anonymous product/category SELECT or storefront interface.
+- Drop obsolete policies and both obsolete global authorization helpers with
+  restrictive dependency checking (no CASCADE).
+- Explicit intended function grants; internal context adapter restricted to
+  the inventory executor. Stock-column writes excluded from client grants.
+- Explicit service-role access retained, while stock triggers require RPCs and
+  service-role TRUNCATE on inventory/product tables is revoked.
+- Default function EXECUTE revoked globally from PUBLIC/anon/authenticated for
+  postgres; schema-specific explicit defaults also removed.
+
+Supporting changes
+------------------
+- Added supabase/tests/database/tenant_security.test.sql.
+- Added supabase/tests/inventory-concurrency.test.mjs (Docker-local only).
+- Added --experimental-strip-types to npm test for installed Node 22.17.1.
+- Installed declared project dependencies to make Supabase CLI available;
+  package-lock.json did not change.
+
+Final verification
+------------------
+PASS npm run db:reset
+     Clean local reset applied baseline and all three pending migrations.
+PASS npm run db:test
+     68 pgTAP assertions across foundation and security tests.
+PASS node --test supabase/tests/inventory-concurrency.test.mjs
+     2 integration tests, including exact stock backfill, equivalent-constraint
+     OID preservation, incompatible-constraint and null/negative-stock failures,
+     and two genuinely overlapping connections with an observed advisory wait.
+     Equivalent retries commit once; conflicting retries fail; aggregate,
+     location balance and ledger count verified. Fixtures cleaned afterward.
+PASS npm run db:lint
+     No public-schema errors found.
+PASS npm run typecheck
+PASS npm test
+     All 9 application tests passed.
+PASS git diff --check
+
+Issues found and resolved during validation
+------------------------------------------
+- CLI executes migration statements outside an implicit transaction: added
+  explicit BEGIN/COMMIT to all three pending migrations.
+- Isolated stock role cannot use the managed auth schema: introduced a restricted
+  security-definer request-context adapter instead of relying on auth grants.
+- Node required explicit TypeScript stripping: corrected the npm test script.
+
+Remaining limits and operational considerations
+-----------------------------------------------
+- Constraint matching intentionally fails closed. It accepts PostgreSQL's
+  canonical stock_quantity >= 0 and 0 <= stock_quantity expressions; other
+  algebraically equivalent formulations require explicit review.
+- Idempotency is tenant-scoped and applies only when operation_id is non-null.
+  Concurrent tests used the normal READ COMMITTED isolation level; callers
+  selecting stronger isolation must handle PostgreSQL serialization failures.
+- Ledger write guards also prevent cascading hard deletion of inventory-bearing
+  tenants/locations/products. Use deactivation or a separately designed audited
+  administrative archival workflow; no destructive purge RPC was added.
+- Trusted database administrators can change roles/disable triggers, as with any
+  database enforcement. Client and service-role stock paths are tested.
+- postgres default privileges are hardened. Managed Supabase creator-role
+  defaults outside this migration owner were not changed.
+- The three files each commit atomically, but are not one shared transaction.
+  Apply them together during a coordinated cutover; intermediate states are not
+  an application compatibility target.
+- Local reset warns that supabase/seed.sql does not exist. Tests provide their
+  own fixtures. No live data was copied locally.
+- Dependency installation reported 10 moderate vulnerabilities; dependency
+  upgrades/security triage were outside this database migration change.
+
+No unresolved failure remains in the requested validation checks.

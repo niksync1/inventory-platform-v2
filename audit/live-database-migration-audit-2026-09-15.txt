@@ -1,0 +1,442 @@
+LIVE DATABASE AUDIT AGAINST MIGRATIONS 00200, 00300 AND 00400
+Date: 2026-09-15
+
+RESULT
+======
+One confirmed migration-stopping conflict exists. No current data blockers were
+found. Several security and behavioral gaps should be addressed before applying
+these migrations.
+
+The live PostgreSQL 17.6 database was inspected through read-only Supabase MCP
+catalog queries and aggregate data queries. The database role was
+supabase_read_only_user, with RLS bypass, so counts were not filtered by policies.
+No database changes, migration applications, or RPC executions were performed.
+No repository files were edited during the audit. This report was subsequently
+saved at the user's request. This was a catalog/data inspection and SQL review,
+not an execution rehearsal. Findings describe the state observed during the audit.
+
+LOCAL FILES REVIEWED
+===================
+00200: supabase/migrations/20260913000200_multi_tenant_core.sql
+00300: supabase/migrations/20260913000300_tenant_functions_and_rpcs.sql
+00400: supabase/migrations/20260913000400_tenant_rls_and_grants.sql
+Line references below refer to these files as inspected.
+
+1. EXACT CONFLICTS AND MIGRATION COMPATIBILITY
+============================================
+
+CONFIRMED BLOCKER: DUPLICATE CHECK-CONSTRAINT NAME
+Location: 00200, lines 268-269
+
+  alter table public.products
+    add constraint products_stock_quantity_nonnegative
+    check (stock_quantity >= 0);
+
+Live already contains the validated constraint:
+
+  CONSTRAINT products_stock_quantity_nonnegative
+  CHECK (stock_quantity >= 0)
+
+Adding another constraint with this name on products will fail.
+
+Recommendation: Preserve the existing constraint. Remove the redundant statement
+for the verified baseline, or check its table, name, definition and validation
+state before conditionally creating it. Do not silently accept a same-name
+constraint with a different definition.
+
+OTHER OVERLAPPING NAMES ARE HANDLED CORRECTLY
+- 00200:232-236 drops five global unique constraints. All five exist with the
+  expected columns. Compatible.
+- 00200:244-247 drops four old indexes. All four exist. Compatible.
+- 00200:266-267 sets stock default 0 and NOT NULL. Both already set; redundant
+  but harmless.
+- 00200:271-274 replaces profiles_role_check. Live permits warehouse and admin;
+  existing values remain valid under the replacement.
+- 00300:94 replaces handle_new_user(). Same arguments and trigger return type;
+  compatible.
+- 00300:108-111 replaces on_auth_user_created. Existing trigger explicitly handled.
+- 00300:146-147 drops old stock RPCs. Exact signatures exist; no catalog
+  dependencies found. Compatible database change, but breaking client API change.
+- 00300:68 creates can_manage_inventory(uuid). Live has can_manage_inventory().
+  This creates an overload; it does not replace the legacy function.
+- 00400:1-12 drops legacy policies. All 12 named policies exist. Compatible.
+
+No live relation/type names conflict with the six new tables: tenants, locations,
+tenant_memberships, platform_admins, customers, inventory_levels.
+New tenant/customer/location columns, new index names, new constraint names other
+than the stock check, and new policy names are absent live. Other new RPC
+signatures are absent.
+
+2. EXISTING DATA AND BACKFILL BLOCKERS
+====================================
+Exact COUNT(*) results (supersede earlier table-list estimates):
+  products                  28
+  inventory_transactions    12
+  categories                 2
+  orders                     0
+  order_tracking             0
+  users                      2
+  profiles                   4
+  auth.users                 4
+
+Checks performed; all returned zero violations:
+- Null or negative product stock.
+- Duplicate product slugs.
+- Duplicate non-null product barcodes.
+- Duplicate non-null transaction operation IDs.
+- Transactions referencing missing products.
+- Non-null transaction creators missing from profiles.
+- Profiles missing corresponding auth users.
+- Case-insensitive duplicate legacy customer emails.
+- Ambiguous auth-email matches for legacy customers.
+
+No observed data prevents tenant/location backfills, new NOT NULL constraints,
+new uniqueness rules, or foreign keys from succeeding.
+
+Relevant details:
+- All 28 products map to the seeded tenant and main location. Stock totals 1,852.
+- All 12 transactions reference existing products and map to that tenant/location.
+- 21 product barcodes are null; the proposed ordinary unique constraint allows it.
+- 9 operation IDs are null; the proposed partial unique index excludes them.
+- All 12 transactions have null previous_stock and new_stock. These columns
+  remain nullable, so this is not a blocker.
+- All products are active; none have null is_active.
+- Profile backfill produces 1 owner and 3 warehouse memberships.
+- One of two legacy customers has no matching auth user. customers.auth_user_id
+  permits null, so migration succeeds, but authenticated self-access will not
+  work for that customer until linked.
+- Orders and tracking are empty; their backfills introduce no current conflicts.
+
+Backfill recommendation: At 00200:164-171, validate stock and copy it directly
+instead of greatest(coalesce(stock_quantity, 0), 0). Current stock is valid;
+silent clamping could conceal future source-data problems.
+
+3. SECURITY DISCREPANCIES AND RECOMMENDED CHANGES
+===============================================
+The following are gaps in the proposed final state, not migration execution errors.
+
+A. CUSTOMERS CAN EDIT OWNERSHIP AND BUSINESS FIELDS
+SQL: 00400:96-103, 136-137.
+Self-update checks only auth_user_id = auth.uid(), while table-level UPDATE covers
+every column. Customers can change tenant_id where FKs permit and fields such as
+buyer_type.
+Recommendation: Column grants for self-service fields and a separately authorized
+RPC for manager operations, or a trigger enforcing immutable ownership and
+protected fields. RLS alone does not restrict which columns change.
+
+B. PRODUCT MANAGERS CAN EDIT AGGREGATE STOCK DIRECTLY
+SQL: 00400:18-24, 136-137; conflicts with stock model in 00200:298-299.
+Inserts can supply nonzero stock_quantity. Updates can change it without updating
+inventory_levels or recording transactions.
+Recommendation: Restrict product writes to non-stock fields, enforce initial zero
+stock, and require stock changes through stock RPCs.
+
+C. FUTURE FUNCTIONS RETAIN DEFAULT PUBLIC EXECUTION
+SQL: 00400:153.
+Revoking explicit defaults from anon and authenticated does not remove
+PostgreSQL's default PUBLIC EXECUTE.
+Recommendation: Add the following without IN SCHEMA, and retain schema-specific
+explicit-role revocations. Review the broader scope deliberately.
+
+  ALTER DEFAULT PRIVILEGES FOR ROLE postgres
+    REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;
+
+D. TENANT ADMINS CAN EDIT SUBSCRIPTION-CONTROL FIELDS
+SQL: 00400:53-56, 138; 00300:14-31.
+UPDATE covers status and plan, not just display information. Authorization helpers
+do not inspect tenant status.
+Recommendation: Restrict subscription/status changes to trusted operations. If
+suspension must block access, enforce allowed tenant status in authorization
+helpers and public-catalog access.
+
+E. AUTHENTICATED STAFF CANNOT SELECT INACTIVE PRODUCTS/CATEGORIES
+SQL: 00400:14-41.
+Only active-public SELECT policies are created. UPDATE policies do not supply
+staff SELECT visibility.
+Recommendation: Add tenant-member or manager SELECT policies including inactive rows.
+
+F. TRACKING/ORDER TENANT CONSISTENCY LACKS A COMPOSITE FK
+SQL: 00200:201-203.
+Existing order_id -> orders(id) remains alongside a separate tenant FK.
+Recommendation: Add UNIQUE (tenant_id,id) on orders and a matching tracking
+(tenant_id,order_id) FK. Decide explicitly whether null order_id remains valid.
+
+PUBLIC CATALOG EXPOSURE REQUIRES AN EXPLICIT DESIGN DECISION
+SQL: 00400:14-17 and 29-31:
+
+  using (is_active and tenant_id is not null)
+
+Since tenant_id becomes NOT NULL, anyone can read every active product/category
+across every tenant. Table SELECT grants expose every column, including stock
+and metadata. This matches the policy names but does not provide tenant-scoped
+catalog confidentiality. Define which fields and tenants are publishable if
+public storefront access is intended. Client-side filtering is not authorization.
+
+EXISTING LIVE SECURITY POSTURE
+- All seven public tables grant anon, authenticated and service_role SELECT,
+  INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER and MAINTAIN.
+- RLS limits ordinary row operations, but grants are broader than necessary;
+  RLS does not protect TRUNCATE.
+- All eight public functions grant EXECUTE to all three roles. Six also grant
+  EXECUTE to PUBLIC (all except the two stock RPCs).
+- service_role bypasses RLS; anon and authenticated do not.
+- All three roles have schema USAGE and lack schema CREATE.
+- No column-specific ACLs were found.
+- 00400:131-150 substantially tightens table/function permissions and leaves
+  service-role privileges intact.
+
+REMAINING CLEANUP AND HARDENING
+- Legacy is_admin() and can_manage_inventory() survive. 00400 removes their
+  PUBLIC/anon/authenticated execution and drops dependent admin policies.
+  Remove obsolete helpers after dependency and client review.
+- Most live/proposed security-definer functions use search_path = public. API
+  roles cannot CREATE there, reducing immediate risk. Prefer fully qualified
+  references with a trusted path explicitly placing pg_temp last, or an empty
+  path with qualification throughout.
+- Live supabase_admin defaults also grant broad public-schema privileges.
+  00400 changes only postgres defaults; other creator roles remain outside it.
+- The legacy profiles policy "System can insert profiles" allows self-ID
+  insertion without restricting role. 00400 revokes INSERT, making it ineffective
+  for API roles. Drop the obsolete policy to avoid later accidental reactivation.
+- 00400:131 removes public.users access with no replacement grant. Its SELECT
+  policy remains but becomes ineffective for API roles. Confirm clients moved
+  to customers.
+- Between separately committed migrations, old broad policies/defaults remain
+  until 00400. New RPCs initially inherit broad execution. Tighten grants alongside
+  creation and plan a coordinated application cutover.
+
+RPC BEHAVIORAL ISSUES
+SQL: 00300:173-178 and 253-258.
+Idempotency checks return success for any existing operation ID within the tenant
+without checking product, location, quantity or operation type.
+Concurrent duplicate requests can both pass the initial check. The unique index
+prevents duplicate committed transactions, but one request can fail instead of
+returning an idempotent success.
+Recommendation: Validate request equivalence and serialize/claim operation IDs
+safely. Reject null p_transaction_type explicitly at 00300:250; the current test
+lets it reach the table's NOT NULL failure.
+
+4. LIVE SCHEMA INVENTORY
+=======================
+Notation: ! = NOT NULL; omitted ! = nullable. Defaults follow '='. timestamptz
+means timestamp with time zone. Columns without a shown default have none.
+
+CATEGORIES
+  id uuid! = gen_random_uuid()
+  name text!
+  slug text!
+  description text
+  image_url text
+  is_active boolean! = true
+  created_at timestamptz! = now()
+  updated_at timestamptz! = now()
+
+PRODUCTS
+  id uuid! = extensions.uuid_generate_v4()
+  name text!
+  slug text!
+  description text
+  price numeric(10,2)!
+  compare_at_price numeric(10,2)
+  stock_quantity integer! = 0
+  category text
+  images text[] = '{}'
+  metadata jsonb = '{}'
+  is_active boolean = true
+  created_at timestamptz = now()
+  updated_at timestamptz = now()
+  barcode text
+
+INVENTORY_TRANSACTIONS
+  id uuid! = extensions.uuid_generate_v4()
+  product_id uuid!
+  barcode text
+  transaction_type text!
+  quantity integer!
+  previous_stock integer
+  new_stock integer
+  remarks text
+  created_by uuid
+  created_at timestamptz = now()
+  operation_id text
+
+ORDERS
+  id uuid! = extensions.uuid_generate_v4()
+  order_number text!
+  email text!
+  customer_name text!
+  customer_phone text
+  shipping_address text!
+  shipping_city text!
+  shipping_region text
+  items jsonb!
+  subtotal numeric(10,2)!
+  shipping_fee numeric(10,2) = 0
+  total numeric(10,2)!
+  status text = 'pending'
+  payment_reference text
+  payment_method text
+  notes text
+  created_at timestamptz = now()
+  updated_at timestamptz = now()
+
+ORDER_TRACKING
+  id uuid! = extensions.uuid_generate_v4()
+  order_id uuid
+  status text!
+  message text
+  location text
+  created_at timestamptz = now()
+
+PROFILES
+  id uuid!
+  email text!
+  name text
+  avatar_url text
+  role text! = 'warehouse'
+  created_at timestamptz! = now()
+  updated_at timestamptz! = now()
+
+USERS
+  id uuid! = extensions.uuid_generate_v4()
+  email text!
+  full_name text
+  phone text
+  default_address text
+  created_at timestamptz = now()
+
+No live tenant/location/customer-reference columns, public sequences, views,
+generated columns or identity columns were found.
+
+CONSTRAINTS
+Every table has <table>_pkey PRIMARY KEY (id). All inspected constraints validated.
+Other constraints:
+- categories_name_key UNIQUE(name)
+- categories_slug_key UNIQUE(slug)
+- products_barcode_key UNIQUE(barcode)
+- products_slug_key UNIQUE(slug)
+- products_stock_quantity_nonnegative CHECK(stock_quantity >= 0)
+- inventory_transactions_product_id_fkey: product_id -> products(id), NO ACTION
+- inventory_transactions_created_by_fkey: created_by -> profiles(id),
+  ON DELETE SET NULL
+- orders_order_number_key UNIQUE(order_number)
+- orders_status_check: status in pending, paid, processing, shipped, delivered,
+  cancelled
+- order_tracking_order_id_fkey: order_id -> orders(id), ON DELETE CASCADE
+- profiles_id_fkey: id -> auth.users(id), ON DELETE CASCADE
+- profiles_role_check: role in warehouse, admin
+- users_email_key UNIQUE(email)
+All FK update actions are NO ACTION. No transaction-type or transaction-quantity
+check constraints exist live.
+
+INDEXES
+All 22 indexes are B-tree; none invalid or unready.
+- Seven <table>_pkey unique indexes on (id).
+- Six unique indexes backing unique constraints:
+  categories_name_key(name)
+  categories_slug_key(slug)
+  products_barcode_key(barcode)
+  products_slug_key(slug)
+  orders_order_number_key(order_number)
+  users_email_key(email)
+- Partial unique index:
+  inventory_transactions_operation_id_uidx(operation_id)
+  WHERE operation_id IS NOT NULL
+- Eight ordinary indexes:
+  idx_products_barcode(barcode)
+  idx_products_category(category)
+  idx_products_is_active(is_active)
+  idx_products_slug(slug)
+  idx_orders_email(email)
+  idx_orders_order_number(order_number)
+  idx_orders_status(status)
+  idx_order_tracking_order_id(order_id)
+Only the operation-ID index has a predicate. No expressions or included columns.
+
+5. EVERY LIVE RLS POLICY
+=======================
+All seven public tables have RLS enabled, not forced. All 16 policies are
+PERMISSIVE. PUBLIC means all roles. '-' means no explicit expression.
+
+Table | Policy | Role | Command | USING | WITH CHECK
+categories | Admins can delete categories | authenticated | DELETE | is_admin() | -
+categories | Admins can insert categories | authenticated | INSERT | - | is_admin()
+categories | Admins can update categories | authenticated | UPDATE | is_admin() | is_admin()
+categories | Authenticated users can read categories | authenticated | SELECT | true | -
+inventory_transactions | Authenticated users can read all transactions | authenticated | SELECT | true | -
+order_tracking | Order tracking is viewable | PUBLIC | SELECT | true | -
+orders | Users can view own orders | PUBLIC | SELECT | email = current_setting('app.current_email', true) | -
+products | Admins can delete products | authenticated | DELETE | is_admin() | -
+products | Admins can insert products | authenticated | INSERT | - | is_admin()
+products | Admins can update products | authenticated | UPDATE | is_admin() | is_admin()
+products | Products are viewable by everyone | PUBLIC | SELECT | is_active = true | -
+profiles | Admins can read all profiles | authenticated | SELECT | is_admin() | -
+profiles | System can insert profiles | PUBLIC | INSERT | - | auth.uid() = id
+profiles | Users can read own profile | PUBLIC | SELECT | auth.uid() = id | -
+profiles | Users can update own profile | PUBLIC | UPDATE | auth.uid() = id | auth.uid() = id
+users | Users can view own profile | PUBLIC | SELECT | auth.email() = email | -
+
+00400 removes its 12 explicitly named policies. Three self-profile policies and
+the legacy users policy survive.
+
+6. LIVE FUNCTIONS/RPCS AND TRIGGERS
+=================================
+All public functions are owned by postgres.
+
+Signature | Returns | SECURITY DEFINER | Search path
+can_manage_inventory() | boolean | yes | public
+is_admin() | boolean | yes | public
+handle_new_user() | trigger | yes | public
+prevent_self_role_change() | trigger | yes | public
+rls_auto_enable() | event_trigger | yes | pg_catalog
+update_updated_at_column() | trigger | no | public
+stock_in(p_product_id uuid, p_quantity integer, p_remarks text DEFAULT NULL, p_operation_id text DEFAULT NULL) | void | yes | public
+stock_out(p_product_id uuid, p_quantity integer, p_transaction_type text, p_remarks text DEFAULT NULL, p_operation_id text DEFAULT NULL) | void | yes | public
+
+Full live bodies were inspected:
+- Inventory authorization uses global profile roles warehouse/admin.
+- is_admin() checks global profile role admin.
+- Signup creates a warehouse profile.
+- Role-change trigger rejects changing one's own role.
+- Old stock RPCs modify aggregate product stock and write transactions, with no
+  tenant/location parameters.
+- 00300 replaces signup behavior with customer, drops old stock signatures and
+  adds tenant-aware RPCs.
+- New helpers return boolean; create_tenant(text,text) returns uuid; new stock
+  RPCs return void. All proposed functions are SECURITY DEFINER with
+  search_path = public.
+
+USER-DEFINED ROW TRIGGERS
+All enabled, per row, without WHEN predicates:
+auth.users | on_auth_user_created | AFTER INSERT | handle_new_user()
+categories | set_categories_updated_at | BEFORE UPDATE | update_updated_at_column()
+products | update_products_updated_at | BEFORE UPDATE | update_updated_at_column()
+orders | update_orders_updated_at | BEFORE UPDATE | update_updated_at_column()
+profiles | set_profiles_updated_at | BEFORE UPDATE | update_updated_at_column()
+profiles | prevent_self_role_change | BEFORE UPDATE | prevent_self_role_change()
+
+Internal FK triggers were inspected and match the listed foreign keys.
+Enabled event trigger ensure_rls invokes public.rls_auto_enable() after CREATE
+TABLE, CREATE TABLE AS and SELECT INTO. Remaining event triggers use extensions
+functions for Supabase DDL/extension handling; no target-name conflict was found.
+
+7. APPLIED MIGRATION HISTORY
+===========================
+20260913000100 | live_public_schema_baseline
+00200, 00300 and 00400 are not recorded as applied.
+
+RECOMMENDED ORDER OF LOCAL CHANGES
+=================================
+1. Remove or definition-check the duplicate stock constraint in 00200.
+2. Protect customer ownership/business fields and product stock from unrestricted
+   column updates.
+3. Fix default PUBLIC function execution in 00400.
+4. Add staff visibility for inactive catalog rows.
+5. Enforce tracking/order tenant consistency.
+6. Define public-catalog exposure and tenant suspension/subscription permissions.
+7. Harden RPC idempotency, remove obsolete authorization objects, and coordinate
+   the API cutover.
+
+The live data currently supports the proposed backfill. The duplicate constraint
+and proposed authorization gaps are reasons to revise local migrations before
+applying them.
