@@ -4,7 +4,16 @@ import { resolveTenantSelection, selectionStorageKey, type StoredTenantSelection
 import type { Location, Tenant, TenantAccess, TenantContext, TenantMembership } from '../../core/tenancy/types';
 import { supabase } from '../../shared/supabase';
 import { useAuth } from '../auth/AuthProvider';
-interface TenantValue { accesses: TenantAccess[]; locations: Location[]; context: TenantContext | null; loading: boolean; error: string | null; choose: (tenantId: string, locationId: string) => Promise<void>; createTenant: (name: string, slug: string) => Promise<void>; reload: () => Promise<void>; }
+export interface CreateTrialTenantInput {
+  businessName: string;
+  businessType: string;
+  countryCode: string;
+  timezone: string;
+  firstLocationName: string;
+  firstLocationAddress?: string;
+  idempotencyKey: string;
+}
+interface TenantValue { accesses: TenantAccess[]; locations: Location[]; context: TenantContext | null; loading: boolean; error: string | null; choose: (tenantId: string, locationId: string) => Promise<void>; createTenant: (input: CreateTrialTenantInput) => Promise<void>; reload: () => Promise<void>; }
 const State = createContext<TenantValue | null>(null);
 export function TenantProvider({ children }: PropsWithChildren) {
   const { session } = useAuth(); const userId = session?.user.id ?? '';
@@ -38,7 +47,19 @@ export function TenantProvider({ children }: PropsWithChildren) {
     if (!next || next.tenantId !== tenantId || next.locationId !== locationId) throw new Error('That business or location is not available.');
     setSelection(next); await AsyncStorage.setItem(selectionStorageKey(userId), JSON.stringify(next));
   }, [accesses, locations, userId]);
-  const createTenant = useCallback(async (name: string, slug: string) => { const result = await supabase.rpc('create_tenant', { p_name: name, p_slug: slug }); if (result.error) throw result.error; await reload(); }, [reload]);
+  const createTenant = useCallback(async (input: CreateTrialTenantInput) => {
+    const result = await supabase.rpc('create_trial_tenant', {
+      p_business_name: input.businessName,
+      p_business_type: input.businessType,
+      p_country_code: input.countryCode,
+      p_timezone: input.timezone,
+      p_first_location_name: input.firstLocationName,
+      p_first_location_address: input.firstLocationAddress ?? null,
+      p_idempotency_key: input.idempotencyKey,
+    });
+    if (result.error) throw result.error;
+    await reload();
+  }, [reload]);
   const context = useMemo<TenantContext | null>(() => { if (!selection) return null; const access = accesses.find(({ tenant }) => tenant.id === selection.tenantId); return access ? { ...access, locationId: selection.locationId } : null; }, [accesses, selection]);
   return <State.Provider value={{ accesses, locations, context, loading, error, choose, createTenant, reload }}>{children}</State.Provider>;
 }
