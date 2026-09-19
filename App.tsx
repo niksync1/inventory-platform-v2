@@ -4,6 +4,8 @@ import { StatusBar } from 'expo-status-bar';
 import { AuthProvider, useAuth } from './src/features/auth/AuthProvider';
 import { SignInScreen } from './src/features/auth/SignInScreen';
 import { HomeScreen } from './src/features/home/HomeScreen';
+import { AlertsScreen } from './src/features/alerts/AlertsScreen';
+import { ReportsScreen } from './src/features/reports/ReportsScreen';
 import { BarcodeScannerScreen } from './src/features/inventory/BarcodeScannerScreen';
 import { InventoryScreen } from './src/features/inventory/InventoryScreen';
 import { ProductDetailScreen } from './src/features/inventory/ProductDetailScreen';
@@ -13,7 +15,7 @@ import { TenantProvider, useTenant } from './src/features/tenancy/TenantProvider
 import { TenantSelectionScreen } from './src/features/tenancy/TenantSelectionScreen';
 import { colors } from './src/shared/theme';
 
-type Route = { name: 'home' } | { name: 'inventory' } | { name: 'scanner' } | { name: 'product'; productId: string } | { name: 'movement'; productId: string; type: 'in' | 'out' };
+type Route = { name: 'home' } | { name: 'reports' } | { name: 'alerts' } | { name: 'inventory' } | { name: 'scanner' } | { name: 'product'; productId: string } | { name: 'movement'; productId: string; type: 'in' | 'out' };
 
 export default function App() {
   return <AuthProvider><SafeAreaView style={styles.screen}><StatusBar style="dark" /><AppContent /></SafeAreaView></AuthProvider>;
@@ -47,6 +49,8 @@ function AuthenticatedApp() {
     }} />;
   }
 
+  if (route.name === 'reports') return <ReportsScreen onBack={() => setRoute({ name: 'home' })} />;
+  if (route.name === 'alerts') return <AlertsScreen onBack={() => setRoute({ name: 'home' })} />;
   if (route.name === 'inventory') {
     return <InventoryScreen onBack={() => setRoute({ name: 'home' })} onProduct={productId => setRoute({ name: 'product', productId })} onScan={() => setRoute({ name: 'scanner' })} />;
   }
@@ -74,6 +78,8 @@ function AuthenticatedApp() {
       setChoosing(true);
     }}
     onInventory={() => setRoute({ name: 'inventory' })}
+    onReports={() => setRoute({ name: 'reports' })}
+    onAlerts={() => setRoute({ name: 'alerts' })}
     onSignOut={async () => {
       resetNavigation();
       await signOut();

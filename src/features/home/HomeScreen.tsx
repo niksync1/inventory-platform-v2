@@ -3,21 +3,25 @@ import { ActivityIndicator, Alert, Linking, Pressable, ScrollView, StyleSheet, T
 import { canManageInventory, canOpenAdminDashboard } from '../../core/tenancy/permissions';
 import { colors, spacing } from '../../shared/theme';
 import { useAuth } from '../auth/AuthProvider';
+import { countActiveAlerts } from '../alerts/alertsApi';
 import { loadInventorySummary, type InventorySummary } from '../inventory/inventoryApi';
 import { useTenant } from '../tenancy/TenantProvider';
 
 interface HomeScreenProps {
   onChangeContext: () => void;
   onInventory: () => void;
+  onReports: () => void;
+  onAlerts: () => void;
   onSignOut: () => Promise<void>;
 }
 
-export function HomeScreen({ onChangeContext, onInventory, onSignOut }: HomeScreenProps) {
+export function HomeScreen({ onChangeContext, onInventory, onReports, onAlerts, onSignOut }: HomeScreenProps) {
   const { session } = useAuth();
   const { context, locations } = useTenant();
   const [summary, setSummary] = useState<InventorySummary | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [signingOut, setSigningOut] = useState(false);
+  const [activeAlerts, setActiveAlerts] = useState(0);
   const location = useMemo(() => locations.find(item => item.id === context?.locationId), [context, locations]);
   const profileName = useMemo(() => {
     const candidate = session?.user.user_metadata?.full_name ?? session?.user.user_metadata?.name;
@@ -32,6 +36,7 @@ export function HomeScreen({ onChangeContext, onInventory, onSignOut }: HomeScre
     void loadInventorySummary(context.tenant.id, context.locationId)
       .then(setSummary)
       .catch(caught => setError(caught instanceof Error ? caught.message : 'Unable to load inventory.'));
+    void countActiveAlerts(context.tenant.id, context.locationId).then(setActiveAlerts).catch(() => setActiveAlerts(0));
   }, [context]);
 
   if (!context) return null;
@@ -87,6 +92,16 @@ export function HomeScreen({ onChangeContext, onInventory, onSignOut }: HomeScre
     <Pressable accessibilityRole="button" onPress={onInventory} style={styles.primary}>
       <Text style={styles.primaryText}>Open inventory</Text>
       <Text style={styles.primaryMeta}>{canManageInventory(context.membership.role) ? 'Stock operations available for your role' : 'Read-only access for your role'}</Text>
+    </Pressable>
+
+    <Pressable accessibilityRole="button" onPress={onReports} style={styles.outline}>
+      <Text style={styles.outlineText}>Reports</Text>
+      <Text style={styles.outlineMeta}>Location activity, performers and CSV export</Text>
+    </Pressable>
+
+    <Pressable accessibilityRole="button" onPress={onAlerts} style={styles.outline}>
+      <Text style={styles.outlineText}>Alerts{activeAlerts ? ` (${activeAlerts})` : ''}</Text>
+      <Text style={styles.outlineMeta}>Low stock, damaged and expired goods</Text>
     </Pressable>
 
     {isOwner && dashboardUrl ? <Pressable accessibilityRole="link" onPress={() => void openAdminDashboard()} style={styles.outline}>
