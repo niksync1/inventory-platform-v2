@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { canManageInventory, canManageOrders } from './permissions.ts';
+import { canManageInventory, canManageOrders, canOpenAdminDashboard } from './permissions.ts';
 
 test('warehouse users can manage inventory but not customer orders', () => {
   assert.equal(canManageInventory('warehouse'), true);
@@ -17,4 +17,11 @@ test('owners, admins, and managers can manage inventory and orders', () => {
 test('viewers cannot mutate inventory or manage orders', () => {
   assert.equal(canManageInventory('viewer'), false);
   assert.equal(canManageOrders('viewer'), false);
+});
+
+test('only tenant owners see the external admin dashboard link', () => {
+  assert.equal(canOpenAdminDashboard('owner'), true);
+  for (const role of ['admin', 'manager', 'warehouse', 'viewer'] as const) {
+    assert.equal(canOpenAdminDashboard(role), false);
+  }
 });
