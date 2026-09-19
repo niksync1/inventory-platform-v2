@@ -112,8 +112,8 @@ select set_config(
 );
 select is(
   (select count(*) from public.inventory_alerts),
-  2::bigint,
-  'viewer can read alerts at an assigned location'
+  3::bigint,
+  'viewer can read active, acknowledged and resolved alerts at an assigned location'
 );
 select throws_ok(
   format(
