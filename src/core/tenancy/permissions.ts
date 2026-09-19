@@ -15,3 +15,11 @@ export function canManageInventory(role: TenantRole): boolean {
 export function canManageOrders(role: TenantRole): boolean {
   return ORDER_MANAGERS.has(role);
 }
+
+/**
+ * Mobile navigation may reveal the external administration link only to tenant owners.
+ * The dashboard independently enforces its own membership authorization.
+ */
+export function canOpenAdminDashboard(role: TenantRole): boolean {
+  return role === 'owner';
+}
