@@ -1,13 +1,12 @@
 import { supabase } from '../../shared/supabase';
-import { resolveReportRange, type ReportPeriod } from './reportRange';
+import type { ReportRange } from './reportRange';
 
 export type ReportTransactionType = 'ALL' | 'RECEIPT' | 'SALE' | 'DAMAGE' | 'EXPIRED' | 'ADJUSTMENT';
 export interface ReportSummary { currentUnits: number; productsAtLocation: number; stockReceived: number; stockIssued: number; totalTransactions: number; }
 export interface ReportTransaction { id: string; productName: string; category: string | null; type: string; quantity: number; previousStock: number | null; newStock: number | null; remarks: string | null; performerName: string; performerEmail: string | null; createdAt: string; }
 export interface ReportData { summary: ReportSummary; transactions: ReportTransaction[]; fetchedAt: string; }
 
-export async function loadReport(tenantId: string, locationId: string, period: ReportPeriod, type: ReportTransactionType): Promise<ReportData> {
-  const range = resolveReportRange(period);
+export async function loadReport(tenantId: string, locationId: string, range: ReportRange, type: ReportTransactionType): Promise<ReportData> {
   const summaryResult = await supabase.rpc('get_inventory_report_summary', {
     p_tenant_id: tenantId, p_location_id: locationId, p_from: range.from, p_to_exclusive: range.toExclusive,
   });
@@ -39,8 +38,8 @@ export async function loadReport(tenantId: string, locationId: string, period: R
   };
 }
 
-export function reportCacheKey(userId: string, tenantId: string, locationId: string, period: ReportPeriod, type: ReportTransactionType): string {
-  return `reports:v1:${userId}:${tenantId}:${locationId}:${period}:${type}`;
+export function reportCacheKey(userId: string, tenantId: string, locationId: string, range: ReportRange, type: ReportTransactionType): string {
+  return `reports:v2:${userId}:${tenantId}:${locationId}:${range.from}:${range.toExclusive}:${type}`;
 }
 
 export function reportToCsv(report: ReportData): string {
