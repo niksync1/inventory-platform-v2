@@ -4,6 +4,7 @@
   "main": "index.ts",
   "dependencies": {
     "@react-native-async-storage/async-storage": "^2.2.0",
+    "@react-native-community/datetimepicker": "9.1.0",
     "@supabase/supabase-js": "^2.57.4",
     "expo": "~57.0.21",
     "expo-camera": "~57.0.4",
@@ -23,7 +24,7 @@
     "ios": "expo start --ios",
     "web": "expo start --web",
     "typecheck": "tsc --noEmit",
-    "test": "node --experimental-strip-types --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test src/core/**/*.test.ts",
+    "test": "node --experimental-strip-types --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test src/core/**/*.test.ts src/features/**/*.test.ts",
     "db:start": "supabase db start",
     "db:reset": "supabase db reset --local",
     "db:test": "supabase test db",

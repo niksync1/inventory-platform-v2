@@ -13,7 +13,8 @@
           "microphonePermission": false,
           "recordAudioAndroid": false
         }
-      ]
+      ],
+      "@react-native-community/datetimepicker"
     ],
     "ios": {
       "supportsTablet": true

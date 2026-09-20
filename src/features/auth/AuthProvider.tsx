@@ -18,7 +18,10 @@ export function AuthProvider({ children }: PropsWithChildren) {
     const userId = session?.user.id;
     if (userId) {
       const keys = await AsyncStorage.getAllKeys();
-      const owned = keys.filter(key => key === `tenant-selection:v1:${userId}` || key.startsWith(`offline:operations:v3:${userId}:`));
+      const owned = keys.filter(key => key === `tenant-selection:v1:${userId}`
+        || key.startsWith(`offline:operations:v3:${userId}:`)
+        || key.startsWith(`reports:v1:${userId}:`)
+        || key.startsWith(`reports:v2:${userId}:`));
       if (owned.length) await AsyncStorage.multiRemove(owned);
     }
     const { error } = await supabase.auth.signOut(); if (error) throw error;
