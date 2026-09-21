@@ -4,7 +4,9 @@ import type { ReportRange } from './reportRange';
 export type ReportTransactionType = 'ALL' | 'RECEIPT' | 'SALE' | 'DAMAGE' | 'EXPIRED' | 'ADJUSTMENT';
 export interface ReportSummary { currentUnits: number; productsAtLocation: number; stockReceived: number; stockIssued: number; totalTransactions: number; }
 export interface ReportTransaction { id: string; productName: string; category: string | null; type: string; quantity: number; previousStock: number | null; newStock: number | null; remarks: string | null; performerName: string; performerEmail: string | null; createdAt: string; }
-export interface ReportData { summary: ReportSummary; transactions: ReportTransaction[]; fetchedAt: string; }
+export interface ExpiryBatch { id: string; productName: string; category: string | null; batchNumber: string; expiryDate: string | null; status: string; daysToExpiry: number | null; quantity: number; }
+export interface ExpirySettings { warningDays: number; criticalDays: number; }
+export interface ReportData { summary: ReportSummary; transactions: ReportTransaction[]; expiryBatches: ExpiryBatch[]; fetchedAt: string; }
 
 export async function loadReport(tenantId: string, locationId: string, range: ReportRange, type: ReportTransactionType): Promise<ReportData> {
   const summaryResult = await supabase.rpc('get_inventory_report_summary', {
@@ -17,8 +19,15 @@ export async function loadReport(tenantId: string, locationId: string, range: Re
     .gte('created_at', range.from).lt('created_at', range.toExclusive)
     .order('created_at', { ascending: false }).limit(100);
   if (type !== 'ALL') query = query.eq('transaction_type', type);
-  const transactionResult = await query;
+  const [transactionResult, expiryResult] = await Promise.all([
+    query,
+    supabase.from('inventory_expiry_report')
+      .select('batch_id,product_name,category,batch_number,expiry_date,expiry_status,days_to_expiry,quantity')
+      .eq('tenant_id', tenantId).eq('location_id', locationId)
+      .order('expiry_date', { ascending: true, nullsFirst: false }).limit(500),
+  ]);
   if (transactionResult.error) throw transactionResult.error;
+  if (expiryResult.error) throw expiryResult.error;
   const raw = (summaryResult.data?.[0] ?? {}) as Record<string, unknown>;
   return {
     summary: {
@@ -34,12 +43,42 @@ export async function loadReport(tenantId: string, locationId: string, range: Re
       remarks: row.remarks, performerName: row.performer_name, performerEmail: row.performer_email,
       createdAt: row.created_at,
     })),
+    expiryBatches: (expiryResult.data ?? []).map(row => ({
+      id: row.batch_id, productName: row.product_name, category: row.category,
+      batchNumber: row.batch_number, expiryDate: row.expiry_date, status: row.expiry_status,
+      daysToExpiry: row.days_to_expiry, quantity: row.quantity,
+    })),
     fetchedAt: new Date().toISOString(),
   };
 }
 
+export function expiryReportToCsv(report: ReportData): string {
+  const quote = (value: unknown) => `"${String(value ?? '').replaceAll('"', '""')}"`;
+  const rows = report.expiryBatches.map(item => [
+    item.productName, item.category, item.batchNumber, item.expiryDate,
+    item.daysToExpiry, item.status, item.quantity,
+  ].map(quote).join(','));
+  return ['Product,Category,Batch,Expiry date,Days to expiry,Status,Quantity', ...rows].join('\n');
+}
+
+export async function loadExpirySettings(tenantId: string): Promise<ExpirySettings> {
+  const result = await supabase.from('tenant_inventory_settings')
+    .select('expiry_warning_days,expiry_critical_days').eq('tenant_id', tenantId).single();
+  if (result.error) throw result.error;
+  return { warningDays: result.data.expiry_warning_days, criticalDays: result.data.expiry_critical_days };
+}
+
+export async function updateExpirySettings(tenantId: string, settings: ExpirySettings): Promise<void> {
+  const result = await supabase.from('tenant_inventory_settings').update({
+    expiry_warning_days: settings.warningDays,
+    expiry_critical_days: settings.criticalDays,
+    updated_at: new Date().toISOString(),
+  }).eq('tenant_id', tenantId).select('tenant_id').single();
+  if (result.error) throw result.error;
+}
+
 export function reportCacheKey(userId: string, tenantId: string, locationId: string, range: ReportRange, type: ReportTransactionType): string {
-  return `reports:v2:${userId}:${tenantId}:${locationId}:${range.from}:${range.toExclusive}:${type}`;
+  return `reports:v3:${userId}:${tenantId}:${locationId}:${range.from}:${range.toExclusive}:${type}`;
 }
 
 export function reportToCsv(report: ReportData): string {

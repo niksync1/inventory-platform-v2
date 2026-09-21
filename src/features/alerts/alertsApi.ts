@@ -3,6 +3,8 @@ export type AlertStatus = 'active' | 'acknowledged';
 export interface InventoryAlert { id: string; productId: string; type: string; severity: string; status: string; quantity: number | null; threshold: number | null; message: string; triggeredAt: string; acknowledgedAt: string | null; }
 
 export async function listAlerts(tenantId: string, locationId: string, status: AlertStatus): Promise<InventoryAlert[]> {
+  const refresh = await supabase.rpc('refresh_inventory_expiry_alerts', { p_tenant_id: tenantId, p_location_id: locationId });
+  if (refresh.error) throw refresh.error;
   const result = await supabase.from('inventory_alerts')
     .select('id,product_id,alert_type,severity,status,quantity,threshold,message,triggered_at,acknowledged_at')
     .eq('tenant_id', tenantId).eq('location_id', locationId).eq('status', status)
