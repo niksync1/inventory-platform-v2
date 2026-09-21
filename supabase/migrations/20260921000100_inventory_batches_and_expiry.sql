@@ -226,7 +226,7 @@ begin
       end if;
       if exists (
         select 1 from public.inventory_transaction_batches
-        where transaction_id = existing_operation.id
+        where inventory_transaction_batches.transaction_id = existing_operation.id
       ) and not exists (
         select 1
         from public.inventory_transaction_batches allocation
