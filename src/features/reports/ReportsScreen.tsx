@@ -1,11 +1,11 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import DateTimePicker, { type DateTimePickerEvent } from '@react-native-community/datetimepicker';
 import { useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Platform, Pressable, ScrollView, Share, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Platform, Pressable, ScrollView, Share, StyleSheet, Text, TextInput, View } from 'react-native';
 import { colors, spacing } from '../../shared/theme';
 import { useAuth } from '../auth/AuthProvider';
 import { useTenant } from '../tenancy/TenantProvider';
-import { loadReport, reportCacheKey, reportToCsv, type ReportData, type ReportTransactionType } from './reportsApi';
+import { expiryReportToCsv, loadExpirySettings, loadReport, reportCacheKey, reportToCsv, updateExpirySettings, type ReportData, type ReportTransactionType } from './reportsApi';
 import { resolveCustomReportRange, resolveReportRange, type ReportPeriod, type ReportRange } from './reportRange';
 
 const periods: Array<{ key: ReportPeriod; label: string }> = [{ key: 'today', label: 'Today' }, { key: '7d', label: '7 days' }, { key: '30d', label: '30 days' }];
@@ -27,6 +27,10 @@ export function ReportsScreen({ onBack }: { onBack: () => void }) {
   const [report, setReport] = useState<ReportData | null>(null);
   const [cached, setCached] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [warningDays, setWarningDays] = useState('90');
+  const [criticalDays, setCriticalDays] = useState('30');
+  const [settingsMessage, setSettingsMessage] = useState<string | null>(null);
+  const [savingSettings, setSavingSettings] = useState(false);
   const location = useMemo(() => locations.find(item => item.id === context?.locationId), [context, locations]);
 
   useEffect(() => {
@@ -45,6 +49,29 @@ export function ReportsScreen({ onBack }: { onBack: () => void }) {
     });
     return () => { active = false; };
   }, [appliedRange, context, session, type]);
+
+  useEffect(() => {
+    if (!context) return;
+    void loadExpirySettings(context.tenant.id).then(settings => {
+      setWarningDays(String(settings.warningDays));
+      setCriticalDays(String(settings.criticalDays));
+    }).catch(() => undefined);
+  }, [context]);
+
+  async function saveExpirySettings() {
+    if (!context || savingSettings) return;
+    const warning = Number(warningDays); const critical = Number(criticalDays);
+    if (!Number.isInteger(warning) || warning < 31 || warning > 730 || !Number.isInteger(critical) || critical < 1 || critical > 30 || warning <= critical) {
+      setSettingsMessage('Use 1–30 days for critical and 31–730 days for warning.'); return;
+    }
+    setSavingSettings(true); setSettingsMessage(null);
+    try {
+      await updateExpirySettings(context.tenant.id, { warningDays: warning, criticalDays: critical });
+      setReport(await loadReport(context.tenant.id, context.locationId, appliedRange, type));
+      setSettingsMessage('Expiry thresholds saved.');
+    } catch (caught) { setSettingsMessage(caught instanceof Error ? caught.message : 'Unable to save thresholds.'); }
+    finally { setSavingSettings(false); }
+  }
 
   function selectPreset(nextPeriod: ReportPeriod) {
     const nextRange = resolveReportRange(nextPeriod);
@@ -136,6 +163,20 @@ export function ReportsScreen({ onBack }: { onBack: () => void }) {
       </View>)}
       {!report.transactions.length ? <Text style={styles.body}>No transactions match the selected date range.</Text> : null}
       <Pressable style={styles.outline} onPress={() => void Share.share({ title: 'Inventory report.csv', message: reportToCsv(report) })}><Text style={styles.outlineText}>Share CSV</Text></Pressable>
+      <Text style={styles.section}>Batch expiry ({report.expiryBatches.length})</Text>
+      <Text style={styles.body}>Current stock batches ordered by earliest expiry. This list is independent of the transaction date range.</Text>
+      {report.expiryBatches.map(batch => <View key={batch.id} style={styles.card}>
+        <View style={styles.row}><Text style={styles.cardTitle}>{batch.productName}</Text><Text style={[styles.type, (batch.status === 'expired' || batch.status === 'critical') && styles.danger]}>{batch.status.toUpperCase()}</Text></View>
+        <Text style={styles.body}>Batch {batch.batchNumber} · {batch.quantity} unit(s)</Text>
+        <Text style={styles.body}>{batch.expiryDate ? `Expires ${formatExpiryDate(batch.expiryDate)}${batch.daysToExpiry !== null ? ` · ${formatDays(batch.daysToExpiry)}` : ''}` : 'Expiry not tracked (legacy stock)'}</Text>
+      </View>)}
+      {!report.expiryBatches.length ? <Text style={styles.body}>No stocked batches at this location.</Text> : null}
+      <Pressable style={styles.outline} onPress={() => void Share.share({ title: 'Batch expiry report.csv', message: expiryReportToCsv(report) })}><Text style={styles.outlineText}>Share expiry CSV</Text></Pressable>
+      {context.membership.role === 'owner' || context.membership.role === 'admin' ? <View style={styles.settingsCard}>
+        <Text style={styles.cardTitle}>Expiry alert thresholds</Text><Text style={styles.body}>Owners and admins can configure tenant-wide warning windows.</Text>
+        <View style={styles.dateFields}><View style={styles.settingField}><Text style={styles.dateLabel}>Critical days</Text><TextInput keyboardType="number-pad" onChangeText={setCriticalDays} style={styles.settingInput} value={criticalDays} /></View><View style={styles.settingField}><Text style={styles.dateLabel}>Warning days</Text><TextInput keyboardType="number-pad" onChangeText={setWarningDays} style={styles.settingInput} value={warningDays} /></View></View>
+        {settingsMessage ? <Text style={styles.body}>{settingsMessage}</Text> : null}<Pressable disabled={savingSettings} onPress={() => void saveExpirySettings()} style={[styles.applyButton, styles.saveButton, savingSettings && styles.disabled]}><Text style={styles.applyText}>{savingSettings ? 'Saving…' : 'Save thresholds'}</Text></Pressable>
+      </View> : null}
     </> : null}
   </ScrollView>;
 }
@@ -160,6 +201,8 @@ function formatRange(range: ReportRange, period: PeriodSelection): string {
     : new Date(range.toExclusive);
   return `${formatDate(new Date(range.from))} – ${formatDate(end)}`;
 }
+function formatExpiryDate(value: string): string { return new Date(`${value}T00:00:00`).toLocaleDateString(); }
+function formatDays(days: number): string { if (days < 0) return `${Math.abs(days)} day(s) overdue`; if (days === 0) return 'expires today'; return `${days} day(s) remaining`; }
 
 const styles = StyleSheet.create({
   container: { padding: spacing.xl }, link: { color: colors.primary, fontWeight: '700' }, title: { color: colors.text, fontSize: 32, fontWeight: '700', marginTop: spacing.lg },
@@ -176,6 +219,7 @@ const styles = StyleSheet.create({
   offline: { color: '#9A6700', marginTop: spacing.md }, grid: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.xl }, metric: { backgroundColor: colors.surface, borderColor: colors.border, borderRadius: 12, borderWidth: 1, flex: 1, padding: spacing.md },
   metricValue: { color: colors.text, fontSize: 22, fontWeight: '700' }, meta: { color: colors.textMuted, fontSize: 11, marginTop: spacing.xs }, section: { color: colors.text, fontSize: 18, fontWeight: '700', marginTop: spacing.xl },
   card: { backgroundColor: colors.surface, borderColor: colors.border, borderRadius: 12, borderWidth: 1, marginTop: spacing.md, padding: spacing.md }, row: { flexDirection: 'row', justifyContent: 'space-between' },
-  cardTitle: { color: colors.text, flex: 1, fontWeight: '700' }, type: { color: colors.primary, fontSize: 11, fontWeight: '700' }, body: { color: colors.textMuted, lineHeight: 20, marginTop: spacing.xs },
+  cardTitle: { color: colors.text, flex: 1, fontWeight: '700' }, type: { color: colors.primary, fontSize: 11, fontWeight: '700' }, danger: { color: '#B42318' }, body: { color: colors.textMuted, lineHeight: 20, marginTop: spacing.xs },
   outline: { alignItems: 'center', borderColor: colors.primary, borderRadius: 12, borderWidth: 1, marginTop: spacing.xl, padding: spacing.md }, outlineText: { color: colors.primary, fontWeight: '700' },
+  settingsCard: { backgroundColor: colors.surface, borderColor: colors.border, borderRadius: 12, borderWidth: 1, marginTop: spacing.xl, padding: spacing.md }, settingField: { flex: 1 }, settingInput: { borderColor: colors.border, borderRadius: 10, borderWidth: 1, color: colors.text, fontSize: 18, marginTop: spacing.xs, padding: spacing.sm }, saveButton: { alignItems: 'center', marginTop: spacing.md }, disabled: { opacity: 0.6 },
 });
