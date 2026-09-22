@@ -12,10 +12,11 @@ interface HomeScreenProps {
   onInventory: () => void;
   onReports: () => void;
   onAlerts: () => void;
+  onTransfers: () => void;
   onSignOut: () => Promise<void>;
 }
 
-export function HomeScreen({ onChangeContext, onInventory, onReports, onAlerts, onSignOut }: HomeScreenProps) {
+export function HomeScreen({ onChangeContext, onInventory, onReports, onAlerts, onTransfers, onSignOut }: HomeScreenProps) {
   const { session } = useAuth();
   const { context, locations } = useTenant();
   const [summary, setSummary] = useState<InventorySummary | null>(null);
@@ -102,6 +103,11 @@ export function HomeScreen({ onChangeContext, onInventory, onReports, onAlerts, 
     <Pressable accessibilityRole="button" onPress={onAlerts} style={styles.outline}>
       <Text style={styles.outlineText}>Alerts{activeAlerts ? ` (${activeAlerts})` : ''}</Text>
       <Text style={styles.outlineMeta}>Low stock, damaged and expired goods</Text>
+    </Pressable>
+
+    <Pressable accessibilityRole="button" onPress={onTransfers} style={styles.outline}>
+      <Text style={styles.outlineText}>Transfers</Text>
+      <Text style={styles.outlineMeta}>Dispatch, receive and audit stock moving between locations</Text>
     </Pressable>
 
     {isOwner && dashboardUrl ? <Pressable accessibilityRole="link" onPress={() => void openAdminDashboard()} style={styles.outline}>

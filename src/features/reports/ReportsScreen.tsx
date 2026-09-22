@@ -9,7 +9,7 @@ import { expiryReportToCsv, loadExpirySettings, loadReport, reportCacheKey, repo
 import { resolveCustomReportRange, resolveReportRange, type ReportPeriod, type ReportRange } from './reportRange';
 
 const periods: Array<{ key: ReportPeriod; label: string }> = [{ key: 'today', label: 'Today' }, { key: '7d', label: '7 days' }, { key: '30d', label: '30 days' }];
-const types: ReportTransactionType[] = ['ALL', 'RECEIPT', 'SALE', 'DAMAGE', 'EXPIRED', 'ADJUSTMENT'];
+const types: ReportTransactionType[] = ['ALL', 'RECEIPT', 'SALE', 'DAMAGE', 'EXPIRED', 'ADJUSTMENT', 'TRANSFER_OUT', 'TRANSFER_IN', 'TRANSFER_RETURN'];
 type PeriodSelection = ReportPeriod | 'custom';
 type PickerTarget = 'from' | 'to';
 
