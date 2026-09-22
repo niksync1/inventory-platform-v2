@@ -1,9 +1,30 @@
 import Constants from 'expo-constants';
 import * as Device from 'expo-device';
-import * as Notifications from 'expo-notifications';
 import { Platform } from 'react-native';
 import { supabase } from '../../shared/supabase';
-Notifications.setNotificationHandler({ handleNotification: async () => ({ shouldShowBanner: true, shouldShowList: true, shouldPlaySound: true, shouldSetBadge: false }) });
+
+let notificationHandlerConfigured = false;
+
+export function isExpoGo(): boolean {
+  return Constants.appOwnership === 'expo';
+}
+
+export function canRegisterRemotePush(): boolean {
+  return !isExpoGo() && Device.isDevice && (Platform.OS === 'android' || Platform.OS === 'ios');
+}
+
+async function loadNotifications() {
+  if (isExpoGo()) {
+    throw new Error('Remote push notifications require a development or production build. Expo Go can still be used to test the rest of the app.');
+  }
+
+  const Notifications = await import('expo-notifications');
+  if (!notificationHandlerConfigured) {
+    Notifications.setNotificationHandler({ handleNotification: async () => ({ shouldShowBanner: true, shouldShowList: true, shouldPlaySound: true, shouldSetBadge: false }) });
+    notificationHandlerConfigured = true;
+  }
+  return Notifications;
+}
 export interface NotificationPreferences { pushEnabled: boolean; emailEnabled: boolean; stockAlerts: boolean; expiryAlerts: boolean; damageAlerts: boolean; transferAlerts: boolean; syncFailureAlerts: boolean; }
 export const DEFAULT_NOTIFICATION_PREFERENCES: NotificationPreferences = { pushEnabled: true, emailEnabled: false, stockAlerts: true, expiryAlerts: true, damageAlerts: true, transferAlerts: true, syncFailureAlerts: true };
 export async function loadNotificationPreferences(tenantId: string, userId: string): Promise<NotificationPreferences> {
@@ -15,8 +36,10 @@ export async function saveNotificationPreferences(tenantId: string, userId: stri
   const result = await supabase.from('inventory_notification_preferences').upsert({ tenant_id: tenantId, user_id: userId, push_enabled: value.pushEnabled, email_enabled: value.emailEnabled, stock_alerts: value.stockAlerts, expiry_alerts: value.expiryAlerts, damage_alerts: value.damageAlerts, transfer_alerts: value.transferAlerts, sync_failure_alerts: value.syncFailureAlerts, updated_at: new Date().toISOString() }, { onConflict: 'tenant_id,user_id' }); if (result.error) throw result.error;
 }
 export async function registerExpoPushToken(tenantId: string, userId: string): Promise<string> {
-  if (!Device.isDevice) throw new Error('Push notifications require a physical device or development build.');
+  if (isExpoGo()) throw new Error('Remote push notifications require a development or production build. Expo Go can still be used to test the rest of the app.');
+  if (!Device.isDevice) throw new Error('Push notifications require a physical device.');
   if (Platform.OS !== 'android' && Platform.OS !== 'ios') throw new Error('Push notifications are available on Android and iOS.');
+  const Notifications = await loadNotifications();
   if (Platform.OS === 'android') await Notifications.setNotificationChannelAsync('inventory-alerts', { name: 'Inventory alerts', importance: Notifications.AndroidImportance.HIGH });
   const current = await Notifications.getPermissionsAsync(); const permission = current.status === 'granted' ? current : await Notifications.requestPermissionsAsync();
   if (permission.status !== 'granted') throw new Error('Notification permission was not granted.');
