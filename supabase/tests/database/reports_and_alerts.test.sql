@@ -51,10 +51,13 @@ select lives_ok(
   'warehouse can receive report test stock'
 );
 select lives_ok(
-  $$select public.stock_out(
+  $$select public.stock_out_batch(
     'a2000000-0000-4000-8000-000000000001',
     'a3000000-0000-4000-8000-000000000001',
     'a4000000-0000-4000-8000-000000000001',
+    (select id from public.inventory_batches
+      where product_id = 'a4000000-0000-4000-8000-000000000001'
+        and location_id = 'a3000000-0000-4000-8000-000000000001'),
     6, 'DAMAGE', 'damaged return', 'report-damage'
   )$$,
   'warehouse can record damaged goods'

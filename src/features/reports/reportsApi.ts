@@ -1,7 +1,7 @@
 import { supabase } from '../../shared/supabase';
 import type { ReportRange } from './reportRange';
 
-export type ReportTransactionType = 'ALL' | 'RECEIPT' | 'SALE' | 'DAMAGE' | 'EXPIRED' | 'ADJUSTMENT';
+export type ReportTransactionType = 'ALL' | 'RECEIPT' | 'SALE' | 'DAMAGE' | 'EXPIRED' | 'ADJUSTMENT' | 'TRANSFER_OUT' | 'TRANSFER_IN' | 'TRANSFER_RETURN';
 export interface ReportSummary { currentUnits: number; productsAtLocation: number; stockReceived: number; stockIssued: number; totalTransactions: number; }
 export interface ReportTransaction { id: string; productName: string; category: string | null; type: string; quantity: number; previousStock: number | null; newStock: number | null; remarks: string | null; performerName: string; performerEmail: string | null; createdAt: string; }
 export interface ExpiryBatch { id: string; productName: string; category: string | null; batchNumber: string; expiryDate: string | null; status: string; daysToExpiry: number | null; quantity: number; }

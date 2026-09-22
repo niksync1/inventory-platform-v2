@@ -10,12 +10,14 @@ import { BarcodeScannerScreen } from './src/features/inventory/BarcodeScannerScr
 import { InventoryScreen } from './src/features/inventory/InventoryScreen';
 import { ProductDetailScreen } from './src/features/inventory/ProductDetailScreen';
 import { StockMovementScreen } from './src/features/inventory/StockMovementScreen';
+import { CreateTransferScreen } from './src/features/transfers/CreateTransferScreen';
+import { TransfersScreen } from './src/features/transfers/TransfersScreen';
 import { findProductByBarcode } from './src/features/inventory/inventoryApi';
 import { TenantProvider, useTenant } from './src/features/tenancy/TenantProvider';
 import { TenantSelectionScreen } from './src/features/tenancy/TenantSelectionScreen';
 import { colors } from './src/shared/theme';
 
-type Route = { name: 'home' } | { name: 'reports' } | { name: 'alerts' } | { name: 'inventory' } | { name: 'scanner' } | { name: 'product'; productId: string } | { name: 'movement'; productId: string; type: 'in' | 'out' };
+type Route = { name: 'home' } | { name: 'reports' } | { name: 'alerts' } | { name: 'transfers' } | { name: 'inventory' } | { name: 'scanner' } | { name: 'product'; productId: string } | { name: 'movement'; productId: string; type: 'in' | 'out' } | { name: 'transfer-create'; productId: string; batchId: string };
 
 export default function App() {
   return <AuthProvider><SafeAreaView style={styles.screen}><StatusBar style="dark" /><AppContent /></SafeAreaView></AuthProvider>;
@@ -51,6 +53,7 @@ function AuthenticatedApp() {
 
   if (route.name === 'reports') return <ReportsScreen onBack={() => setRoute({ name: 'home' })} />;
   if (route.name === 'alerts') return <AlertsScreen onBack={() => setRoute({ name: 'home' })} />;
+  if (route.name === 'transfers') return <TransfersScreen onBack={() => setRoute({ name: 'home' })} />;
   if (route.name === 'inventory') {
     return <InventoryScreen onBack={() => setRoute({ name: 'home' })} onProduct={productId => setRoute({ name: 'product', productId })} onScan={() => setRoute({ name: 'scanner' })} />;
   }
@@ -63,7 +66,10 @@ function AuthenticatedApp() {
     }} />;
   }
   if (route.name === 'product') {
-    return <ProductDetailScreen productId={route.productId} refreshKey={refreshKey} onBack={() => setRoute({ name: 'inventory' })} onMove={type => setRoute({ name: 'movement', productId: route.productId, type })} />;
+    return <ProductDetailScreen productId={route.productId} refreshKey={refreshKey} onBack={() => setRoute({ name: 'inventory' })} onMove={type => setRoute({ name: 'movement', productId: route.productId, type })} onTransfer={batchId => setRoute({ name: 'transfer-create', productId: route.productId, batchId })} />;
+  }
+  if (route.name === 'transfer-create') {
+    return <CreateTransferScreen productId={route.productId} batchId={route.batchId} onBack={() => setRoute({ name: 'product', productId: route.productId })} onSuccess={() => setRoute({ name: 'transfers' })} />;
   }
   if (route.name === 'movement') {
     return <StockMovementScreen productId={route.productId} type={route.type} onBack={() => setRoute({ name: 'product', productId: route.productId })} onSuccess={() => {
@@ -80,6 +86,7 @@ function AuthenticatedApp() {
     onInventory={() => setRoute({ name: 'inventory' })}
     onReports={() => setRoute({ name: 'reports' })}
     onAlerts={() => setRoute({ name: 'alerts' })}
+    onTransfers={() => setRoute({ name: 'transfers' })}
     onSignOut={async () => {
       resetNavigation();
       await signOut();

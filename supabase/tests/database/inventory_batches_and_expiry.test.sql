@@ -50,7 +50,7 @@ select is((select quantity from public.inventory_levels where product_id = 'b400
 select is((select sum(quantity)::integer from public.inventory_batches where product_id = 'b4000000-0000-4000-8000-000000000001'), 21, 'batch quantities reconcile with location stock');
 
 select lives_ok(
-  $$select public.stock_out_fefo('b2000000-0000-4000-8000-000000000001','b3000000-0000-4000-8000-000000000001','b4000000-0000-4000-8000-000000000001',8,'SALE',null,'fefo-sale')$$,
+  $$select public.stock_out_sale_fefo('b2000000-0000-4000-8000-000000000001','b3000000-0000-4000-8000-000000000001','b4000000-0000-4000-8000-000000000001',8,null,'fefo-sale')$$,
   'warehouse can issue stock using FEFO'
 );
 select is((select quantity from public.inventory_batches where batch_number = 'LOT-EARLY'), 0, 'FEFO empties the earliest batch first');
@@ -74,7 +74,7 @@ select throws_ok(
 select set_config('request.jwt.claims', '{"sub":"b1000000-0000-4000-8000-000000000002","role":"authenticated"}', true);
 select is((select count(*) from public.inventory_batches), 3::bigint, 'viewer can read batches at an assigned location');
 select throws_ok(
-  $$select public.stock_out_fefo('b2000000-0000-4000-8000-000000000001','b3000000-0000-4000-8000-000000000001','b4000000-0000-4000-8000-000000000001',1,'SALE',null,'viewer-denied')$$,
+  $$select public.stock_out_sale_fefo('b2000000-0000-4000-8000-000000000001','b3000000-0000-4000-8000-000000000001','b4000000-0000-4000-8000-000000000001',1,null,'viewer-denied')$$,
   'P0001', 'Not authorized to manage inventory for this tenant',
   'viewer cannot issue stock'
 );
