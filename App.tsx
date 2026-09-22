@@ -12,12 +12,15 @@ import { ProductDetailScreen } from './src/features/inventory/ProductDetailScree
 import { StockMovementScreen } from './src/features/inventory/StockMovementScreen';
 import { CreateTransferScreen } from './src/features/transfers/CreateTransferScreen';
 import { TransfersScreen } from './src/features/transfers/TransfersScreen';
+import { OfflineSyncProvider } from './src/features/offline/OfflineSyncProvider';
+import { OfflineSyncScreen } from './src/features/offline/OfflineSyncScreen';
+import { NotificationPreferencesScreen } from './src/features/notifications/NotificationPreferencesScreen';
 import { findProductByBarcode } from './src/features/inventory/inventoryApi';
 import { TenantProvider, useTenant } from './src/features/tenancy/TenantProvider';
 import { TenantSelectionScreen } from './src/features/tenancy/TenantSelectionScreen';
 import { colors } from './src/shared/theme';
 
-type Route = { name: 'home' } | { name: 'reports' } | { name: 'alerts' } | { name: 'transfers' } | { name: 'inventory' } | { name: 'scanner' } | { name: 'product'; productId: string } | { name: 'movement'; productId: string; type: 'in' | 'out' } | { name: 'transfer-create'; productId: string; batchId: string };
+type Route = { name: 'home' } | { name: 'reports' } | { name: 'alerts' } | { name: 'transfers' } | { name: 'offline-sync' } | { name: 'notifications' } | { name: 'inventory' } | { name: 'scanner' } | { name: 'product'; productId: string } | { name: 'movement'; productId: string; type: 'in' | 'out' } | { name: 'transfer-create'; productId: string; batchId: string };
 
 export default function App() {
   return <AuthProvider><SafeAreaView style={styles.screen}><StatusBar style="dark" /><AppContent /></SafeAreaView></AuthProvider>;
@@ -27,7 +30,7 @@ function AppContent() {
   const { session, loading } = useAuth();
   if (loading) return <ActivityIndicator color={colors.primary} style={styles.loader} />;
   if (!session) return <SignInScreen />;
-  return <TenantProvider key={session.user.id}><AuthenticatedApp /></TenantProvider>;
+  return <TenantProvider key={session.user.id}><OfflineSyncProvider><AuthenticatedApp /></OfflineSyncProvider></TenantProvider>;
 }
 
 function AuthenticatedApp() {
@@ -54,6 +57,8 @@ function AuthenticatedApp() {
   if (route.name === 'reports') return <ReportsScreen onBack={() => setRoute({ name: 'home' })} />;
   if (route.name === 'alerts') return <AlertsScreen onBack={() => setRoute({ name: 'home' })} />;
   if (route.name === 'transfers') return <TransfersScreen onBack={() => setRoute({ name: 'home' })} />;
+  if (route.name === 'offline-sync') return <OfflineSyncScreen onBack={() => setRoute({ name: 'home' })} />;
+  if (route.name === 'notifications') return <NotificationPreferencesScreen onBack={() => setRoute({ name: 'home' })} />;
   if (route.name === 'inventory') {
     return <InventoryScreen onBack={() => setRoute({ name: 'home' })} onProduct={productId => setRoute({ name: 'product', productId })} onScan={() => setRoute({ name: 'scanner' })} />;
   }
@@ -87,6 +92,8 @@ function AuthenticatedApp() {
     onReports={() => setRoute({ name: 'reports' })}
     onAlerts={() => setRoute({ name: 'alerts' })}
     onTransfers={() => setRoute({ name: 'transfers' })}
+    onOfflineSync={() => setRoute({ name: 'offline-sync' })}
+    onNotifications={() => setRoute({ name: 'notifications' })}
     onSignOut={async () => {
       resetNavigation();
       await signOut();

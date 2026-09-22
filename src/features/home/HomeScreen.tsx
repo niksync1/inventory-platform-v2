@@ -6,6 +6,7 @@ import { useAuth } from '../auth/AuthProvider';
 import { countActiveAlerts } from '../alerts/alertsApi';
 import { loadInventorySummary, type InventorySummary } from '../inventory/inventoryApi';
 import { useTenant } from '../tenancy/TenantProvider';
+import { useOfflineSync } from '../offline/OfflineSyncProvider';
 
 interface HomeScreenProps {
   onChangeContext: () => void;
@@ -13,12 +14,15 @@ interface HomeScreenProps {
   onReports: () => void;
   onAlerts: () => void;
   onTransfers: () => void;
+  onOfflineSync: () => void;
+  onNotifications: () => void;
   onSignOut: () => Promise<void>;
 }
 
-export function HomeScreen({ onChangeContext, onInventory, onReports, onAlerts, onTransfers, onSignOut }: HomeScreenProps) {
+export function HomeScreen({ onChangeContext, onInventory, onReports, onAlerts, onTransfers, onOfflineSync, onNotifications, onSignOut }: HomeScreenProps) {
   const { session } = useAuth();
   const { context, locations } = useTenant();
+  const { pendingCount, failedCount, syncing } = useOfflineSync();
   const [summary, setSummary] = useState<InventorySummary | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [signingOut, setSigningOut] = useState(false);
@@ -108,6 +112,16 @@ export function HomeScreen({ onChangeContext, onInventory, onReports, onAlerts, 
     <Pressable accessibilityRole="button" onPress={onTransfers} style={styles.outline}>
       <Text style={styles.outlineText}>Transfers</Text>
       <Text style={styles.outlineMeta}>Dispatch, receive and audit stock moving between locations</Text>
+    </Pressable>
+
+    <Pressable accessibilityRole="button" onPress={onOfflineSync} style={styles.outline}>
+      <Text style={styles.outlineText}>Offline sync{pendingCount || failedCount ? ` (${pendingCount + failedCount})` : ''}</Text>
+      <Text style={styles.outlineMeta}>{failedCount ? `${failedCount} operation(s) need attention` : syncing ? 'Synchronizing queued operations' : pendingCount ? 'Waiting to synchronize' : 'All operations synchronized'}</Text>
+    </Pressable>
+
+    <Pressable accessibilityRole="button" onPress={onNotifications} style={styles.outline}>
+      <Text style={styles.outlineText}>Notification preferences</Text>
+      <Text style={styles.outlineMeta}>Push, email and alert-type choices</Text>
     </Pressable>
 
     {isOwner && dashboardUrl ? <Pressable accessibilityRole="link" onPress={() => void openAdminDashboard()} style={styles.outline}>

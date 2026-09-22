@@ -1,13 +1,16 @@
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Alert, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { createOperationId } from '../../core/inventory/operationId';
 import { validateQuantity } from '../../core/inventory/quantity';
 import { colors, spacing } from '../../shared/theme';
+import { useAuth } from '../auth/AuthProvider';
 import { loadProductDetail, type ProductDetail } from '../inventory/inventoryApi';
+import { useOfflineSync } from '../offline/OfflineSyncProvider';
 import { useTenant } from '../tenancy/TenantProvider';
-import { createTransfer, listTransferDestinations, type TransferDestination } from './transfersApi';
+import { listTransferDestinations, type TransferDestination } from './transfersApi';
 
 export function CreateTransferScreen({ productId, batchId, onBack, onSuccess }: { productId: string; batchId: string; onBack: () => void; onSuccess: () => void }) {
+  const { session } = useAuth(); const { submit: submitOfflineOperation } = useOfflineSync();
   const { context, locations } = useTenant();
   const [product, setProduct] = useState<ProductDetail | null>(null);
   const [destinations, setDestinations] = useState<TransferDestination[]>([]);
@@ -31,13 +34,14 @@ export function CreateTransferScreen({ productId, batchId, onBack, onSuccess }: 
   }, [batchId, context, productId]);
 
   async function submit() {
-    if (!context || !batch || !destinationId || submitting) return;
+    if (!context || !session || !batch || !destinationId || submitting) return;
     const checked = validateQuantity(quantity);
     if (!checked.valid) { setError(checked.reason); return; }
     if (checked.quantity > batch.quantity) { setError(`Only ${batch.quantity} units are available in this batch.`); return; }
     setSubmitting(true); setError(null);
     try {
-      await createTransfer({ tenantId: context.tenant.id, sourceLocationId: context.locationId, destinationLocationId: destinationId, batchId, quantity: checked.quantity, remarks: remarks.trim() || undefined, operationId: createOperationId() });
+      const result = await submitOfflineOperation({ id: createOperationId(), userId: session.user.id, tenantId: context.tenant.id, locationId: context.locationId, productId, kind: 'transfer_create', payload: { destinationLocationId: destinationId, batchId, quantity: checked.quantity, remarks: remarks.trim() || null } });
+      if (result === 'queued') Alert.alert('Saved offline', 'The draft transfer will be created automatically when the connection returns.');
       onSuccess();
     } catch (caught) { setError(caught instanceof Error ? caught.message : 'Unable to create the transfer.'); }
     finally { setSubmitting(false); }

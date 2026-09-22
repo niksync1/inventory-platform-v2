@@ -1,22 +1,25 @@
 import { useEffect, useState } from 'react';
 import DateTimePicker, { type DateTimePickerEvent } from '@react-native-community/datetimepicker';
-import { ActivityIndicator, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Alert, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { createOperationId } from '../../core/inventory/operationId';
 import { validateQuantity } from '../../core/inventory/quantity';
 import { colors, spacing } from '../../shared/theme';
+import { useAuth } from '../auth/AuthProvider';
+import { useOfflineSync } from '../offline/OfflineSyncProvider';
 import { useTenant } from '../tenancy/TenantProvider';
-import { loadProductDetail, stockIn, stockOutBatch, stockOutSale, type ProductDetail } from './inventoryApi';
+import { loadProductDetail, type ProductDetail } from './inventoryApi';
 
 type StockOutReason = 'SALE' | 'DAMAGE' | 'EXPIRED' | 'ADJUSTMENT';
 const REASONS: StockOutReason[] = ['SALE', 'DAMAGE', 'EXPIRED', 'ADJUSTMENT'];
 
 export function StockMovementScreen({ productId, type, onBack, onSuccess }: { productId: string; type: 'in' | 'out'; onBack: () => void; onSuccess: () => void }) {
+  const { session } = useAuth(); const { submit: submitOfflineOperation } = useOfflineSync();
   const { context, locations } = useTenant(); const [product, setProduct] = useState<ProductDetail | null>(null); const [quantity, setQuantity] = useState(''); const [batchNumber, setBatchNumber] = useState(''); const [expiryDate, setExpiryDate] = useState(defaultExpiryDate); const [showExpiryPicker, setShowExpiryPicker] = useState(false); const [remarks, setRemarks] = useState(''); const [reason, setReason] = useState<StockOutReason>('SALE'); const [selectedBatchId, setSelectedBatchId] = useState<string | null>(null); const [submitting, setSubmitting] = useState(false); const [error, setError] = useState<string | null>(null);
   const location = locations.find(item => item.id === context?.locationId);
   useEffect(() => { if (!context) return; void loadProductDetail(context.tenant.id, context.locationId, productId).then(setProduct).catch(caught => setError(caught instanceof Error ? caught.message : 'Unable to load product.')); }, [context, productId]);
 
   async function submit() {
-    if (!context || !product || submitting) return;
+    if (!context || !session || !product || submitting) return;
     const checked = validateQuantity(quantity); if (!checked.valid) { setError(checked.reason); return; }
     const selectedBatch = product.batches.find(batch => batch.id === selectedBatchId);
     if (type === 'out' && reason === 'SALE' && checked.quantity > product.locationQuantity) { setError(`Only ${product.locationQuantity} units are available at ${location?.name}.`); return; }
@@ -25,11 +28,14 @@ export function StockMovementScreen({ productId, type, onBack, onSuccess }: { pr
     if (type === 'out' && reason !== 'SALE' && remarks.trim().length < 3) { setError('Enter a reason of at least 3 characters.'); return; }
     if (type === 'in' && !batchNumber.trim()) { setError('Enter the supplier batch or lot number.'); return; }
     setSubmitting(true); setError(null);
-    const common = { tenantId: context.tenant.id, locationId: context.locationId, productId, quantity: checked.quantity, remarks: remarks.trim() || undefined, operationId: createOperationId() };
+    const common = { id: createOperationId(), userId: session.user.id, tenantId: context.tenant.id, locationId: context.locationId, productId };
     try {
-      if (type === 'in') await stockIn({ ...common, batchNumber: batchNumber.trim(), expiryDate: toIsoDate(expiryDate) });
-      else if (reason === 'SALE') await stockOutSale(common);
-      else await stockOutBatch({ ...common, batchId: selectedBatchId!, transactionType: reason, remarks: remarks.trim() });
+      const result = type === 'in'
+        ? await submitOfflineOperation({ ...common, kind: 'stock_in', payload: { quantity: checked.quantity, batchNumber: batchNumber.trim(), expiryDate: toIsoDate(expiryDate), remarks: remarks.trim() || null } })
+        : reason === 'SALE'
+          ? await submitOfflineOperation({ ...common, kind: 'stock_out_sale', payload: { quantity: checked.quantity, remarks: remarks.trim() || null } })
+          : await submitOfflineOperation({ ...common, kind: 'stock_out_batch', payload: { batchId: selectedBatchId!, quantity: checked.quantity, transactionType: reason, remarks: remarks.trim() } });
+      if (result === 'queued') Alert.alert('Saved offline', 'This operation will sync automatically when the connection returns.');
       onSuccess();
     }
     catch (caught) { setError(caught instanceof Error ? caught.message : 'The stock movement failed.'); }
