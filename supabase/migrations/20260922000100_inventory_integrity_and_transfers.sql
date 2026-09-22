@@ -149,6 +149,14 @@ create trigger guard_inventory_transfer_event_writes
 before insert or update or delete on public.inventory_transfer_events
 for each row execute function public.guard_batch_writes();
 
+create function public.can_manage_transfers_at_location(p_tenant_id uuid, p_location_id uuid)
+returns boolean language sql stable security definer
+set search_path = pg_catalog, public, pg_temp
+as $$
+  select public.can_access_location(p_tenant_id, p_location_id)
+    and public.has_tenant_role(p_tenant_id, array['owner', 'admin', 'manager']);
+$$;
+
 create function public.stock_out_batch(
   p_tenant_id uuid,
   p_location_id uuid,
@@ -173,11 +181,11 @@ declare
   existing_operation public.inventory_transactions%rowtype;
   request_context jsonb := public.inventory_request_context();
 begin
-  if not public.can_manage_inventory(p_tenant_id) and not (
+  if not public.can_manage_inventory_at_location(p_tenant_id, p_location_id) and not (
     (request_context->>'service_role')::boolean and exists (
       select 1 from public.tenants where id = p_tenant_id and status in ('trial', 'active')
     )
-  ) then raise exception 'Not authorized to manage inventory for this tenant'; end if;
+  ) then raise exception 'Not authorized to manage inventory at this location'; end if;
   if p_quantity is null or p_quantity <= 0 then raise exception 'Quantity must be a positive integer'; end if;
   if p_transaction_type is null or p_transaction_type not in ('DAMAGE', 'EXPIRED', 'ADJUSTMENT') then
     raise exception 'Batch-specific stock-out type must be DAMAGE, EXPIRED, or ADJUSTMENT';
@@ -335,7 +343,7 @@ declare
   destination_location_name text;
   request_context jsonb := public.inventory_request_context();
 begin
-  if not public.can_manage_inventory_at_location(p_tenant_id, p_source_location_id) then
+  if not public.can_manage_transfers_at_location(p_tenant_id, p_source_location_id) then
     raise exception 'Not authorized to create a transfer from this location';
   end if;
   if p_source_location_id = p_destination_location_id then
@@ -410,7 +418,7 @@ security definer
 set search_path = pg_catalog, public, pg_temp
 as $$
 begin
-  if not public.can_manage_inventory_at_location(p_tenant_id, p_source_location_id) then
+  if not public.can_manage_transfers_at_location(p_tenant_id, p_source_location_id) then
     raise exception 'Not authorized to transfer stock from this location';
   end if;
   return query
@@ -443,7 +451,7 @@ begin
   if p_operation_id is null or length(btrim(p_operation_id)) = 0 then raise exception 'Operation ID is required'; end if;
   select * into transfer_record from public.inventory_transfers where id = p_transfer_id for update;
   if not found then raise exception 'Transfer not found'; end if;
-  if not public.can_manage_inventory_at_location(transfer_record.tenant_id, transfer_record.source_location_id) then
+  if not public.can_manage_transfers_at_location(transfer_record.tenant_id, transfer_record.source_location_id) then
     raise exception 'Not authorized to dispatch this transfer';
   end if;
   perform pg_advisory_xact_lock(hashtextextended(transfer_record.tenant_id::text || ':' || p_operation_id, 0));
@@ -658,7 +666,7 @@ begin
   if p_reason is null or length(btrim(p_reason)) < 3 then raise exception 'A cancellation reason is required'; end if;
   select * into transfer_record from public.inventory_transfers where id = p_transfer_id for update;
   if not found then raise exception 'Transfer not found'; end if;
-  if not public.can_manage_inventory_at_location(transfer_record.tenant_id, transfer_record.source_location_id) then
+  if not public.can_manage_transfers_at_location(transfer_record.tenant_id, transfer_record.source_location_id) then
     raise exception 'Not authorized to cancel this transfer';
   end if;
   perform pg_advisory_xact_lock(hashtextextended(transfer_record.tenant_id::text || ':' || p_operation_id, 0));
@@ -830,6 +838,7 @@ revoke all on function public.stock_out_sale_fefo(uuid, uuid, uuid, integer, tex
 revoke all on function public.create_inventory_transfer(uuid, uuid, uuid, uuid, integer, text, text)
   from public, anon;
 revoke all on function public.get_inventory_transfer_destinations(uuid, uuid) from public, anon;
+revoke all on function public.can_manage_transfers_at_location(uuid, uuid) from public, anon;
 revoke all on function public.inventory_location_is_active(uuid, uuid)
   from public, anon, authenticated, service_role;
 revoke all on function public.inventory_location_name_internal(uuid, uuid)
@@ -841,11 +850,13 @@ grant execute on function public.stock_out_batch(uuid, uuid, uuid, uuid, integer
   public.stock_out_sale_fefo(uuid, uuid, uuid, integer, text, text),
   public.create_inventory_transfer(uuid, uuid, uuid, uuid, integer, text, text),
   public.get_inventory_transfer_destinations(uuid, uuid),
+  public.can_manage_transfers_at_location(uuid, uuid),
   public.dispatch_inventory_transfer(uuid, text),
   public.receive_inventory_transfer(uuid, integer, text),
   public.cancel_inventory_transfer(uuid, text, text) to authenticated, service_role;
 grant execute on function public.inventory_location_is_active(uuid, uuid) to inventory_rpc_executor;
 grant execute on function public.inventory_location_name_internal(uuid, uuid) to inventory_rpc_executor;
+grant execute on function public.can_manage_transfers_at_location(uuid, uuid) to inventory_rpc_executor;
 
 grant create on schema public to inventory_rpc_executor;
 alter function public.stock_out_batch(uuid, uuid, uuid, uuid, integer, text, text, text)

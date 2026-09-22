@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Alert, Pressable, RefreshControl, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { createOperationId } from '../../core/inventory/operationId';
 import { validateQuantity } from '../../core/inventory/quantity';
-import { canManageInventory } from '../../core/tenancy/permissions';
+import { canManageTransfers, canReceiveTransfers } from '../../core/tenancy/permissions';
 import { colors, spacing } from '../../shared/theme';
 import { useTenant } from '../tenancy/TenantProvider';
 import { cancelTransfer, dispatchTransfer, listTransfers, receiveTransfer, type InventoryTransfer } from './transfersApi';
@@ -29,7 +29,8 @@ export function TransfersScreen({ onBack }: { onBack: () => void }) {
   }, [context]);
   useEffect(() => { void load(); }, [load]);
   if (!context) return null;
-  const mayManage = canManageInventory(context.membership.role);
+  const mayManage = canManageTransfers(context.membership.role);
+  const mayReceive = canReceiveTransfers(context.membership.role);
 
   function confirmDispatch(transfer: InventoryTransfer) {
     Alert.alert('Dispatch transfer?', `${transfer.quantityRequested} unit(s) will leave ${transfer.sourceLocationName} and remain in transit until received.`, [
@@ -68,7 +69,7 @@ export function TransfersScreen({ onBack }: { onBack: () => void }) {
       const outgoing = transfer.sourceLocationId === context.locationId;
       const incoming = transfer.destinationLocationId === context.locationId;
       const canDispatch = mayManage && outgoing && transfer.status === 'draft';
-      const canReceive = mayManage && incoming && (transfer.status === 'dispatched' || transfer.status === 'partially_received');
+      const canReceive = mayReceive && incoming && (transfer.status === 'dispatched' || transfer.status === 'partially_received');
       const canCancel = mayManage && outgoing && ['draft', 'dispatched', 'partially_received'].includes(transfer.status);
       return <View key={transfer.id} style={styles.card}>
         <View style={styles.row}><Text style={styles.reference}>{transfer.reference}</Text><Text style={[styles.status, statusStyle(transfer.status)]}>{transfer.status.replaceAll('_', ' ').toUpperCase()}</Text></View>

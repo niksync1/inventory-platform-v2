@@ -4,22 +4,25 @@ set search_path = public, extensions;
 select no_plan();
 
 insert into auth.users (id, email) values
- ('c1000000-0000-4000-8000-000000000001', 'source-warehouse@test.invalid'),
+ ('c1000000-0000-4000-8000-000000000001', 'source-manager@test.invalid'),
  ('c1000000-0000-4000-8000-000000000002', 'destination-warehouse@test.invalid'),
- ('c1000000-0000-4000-8000-000000000003', 'transfer-viewer@test.invalid');
+ ('c1000000-0000-4000-8000-000000000003', 'transfer-viewer@test.invalid'),
+ ('c1000000-0000-4000-8000-000000000004', 'source-warehouse@test.invalid');
 insert into public.tenants (id, name, slug) values
  ('c2000000-0000-4000-8000-000000000001', 'Transfer Test', 'transfer-test');
 insert into public.tenant_memberships (tenant_id, user_id, role) values
- ('c2000000-0000-4000-8000-000000000001', 'c1000000-0000-4000-8000-000000000001', 'warehouse'),
+ ('c2000000-0000-4000-8000-000000000001', 'c1000000-0000-4000-8000-000000000001', 'manager'),
  ('c2000000-0000-4000-8000-000000000001', 'c1000000-0000-4000-8000-000000000002', 'warehouse'),
- ('c2000000-0000-4000-8000-000000000001', 'c1000000-0000-4000-8000-000000000003', 'viewer');
+ ('c2000000-0000-4000-8000-000000000001', 'c1000000-0000-4000-8000-000000000003', 'viewer'),
+ ('c2000000-0000-4000-8000-000000000001', 'c1000000-0000-4000-8000-000000000004', 'warehouse');
 insert into public.locations (id, tenant_id, name, code) values
  ('c3000000-0000-4000-8000-000000000001', 'c2000000-0000-4000-8000-000000000001', 'Source', 'SRC'),
  ('c3000000-0000-4000-8000-000000000002', 'c2000000-0000-4000-8000-000000000001', 'Destination', 'DST');
 insert into public.location_memberships (tenant_id, location_id, user_id) values
  ('c2000000-0000-4000-8000-000000000001', 'c3000000-0000-4000-8000-000000000001', 'c1000000-0000-4000-8000-000000000001'),
  ('c2000000-0000-4000-8000-000000000001', 'c3000000-0000-4000-8000-000000000002', 'c1000000-0000-4000-8000-000000000002'),
- ('c2000000-0000-4000-8000-000000000001', 'c3000000-0000-4000-8000-000000000001', 'c1000000-0000-4000-8000-000000000003');
+ ('c2000000-0000-4000-8000-000000000001', 'c3000000-0000-4000-8000-000000000001', 'c1000000-0000-4000-8000-000000000003'),
+ ('c2000000-0000-4000-8000-000000000001', 'c3000000-0000-4000-8000-000000000001', 'c1000000-0000-4000-8000-000000000004');
 insert into public.products (id, tenant_id, name, slug, price)
 values ('c4000000-0000-4000-8000-000000000001', 'c2000000-0000-4000-8000-000000000001', 'Transfer Medicine', 'transfer-medicine', 1);
 
@@ -36,19 +39,19 @@ select is(
   (select count(*) from public.get_inventory_transfer_destinations(
     'c2000000-0000-4000-8000-000000000001','c3000000-0000-4000-8000-000000000001'
   )), 1::bigint,
-  'source warehouse can discover an active destination without gaining location inventory access'
+  'source manager can discover an active destination without gaining location inventory access'
 );
 select lives_ok(
   $$select public.stock_in_batch('c2000000-0000-4000-8000-000000000001','c3000000-0000-4000-8000-000000000001','c4000000-0000-4000-8000-000000000001',10,'LOT-EARLY',current_date + 10,null,'integrity-early')$$,
-  'source warehouse receives early batch'
+  'source manager receives early batch'
 );
 select lives_ok(
   $$select public.stock_in_batch('c2000000-0000-4000-8000-000000000001','c3000000-0000-4000-8000-000000000001','c4000000-0000-4000-8000-000000000001',20,'LOT-LATER',current_date + 60,null,'integrity-later')$$,
-  'source warehouse receives later batch'
+  'source manager receives later batch'
 );
 select lives_ok(
   $$select public.stock_in_batch('c2000000-0000-4000-8000-000000000001','c3000000-0000-4000-8000-000000000001','c4000000-0000-4000-8000-000000000001',3,'LOT-EXPIRED',current_date,null,'integrity-expired')$$,
-  'source warehouse receives expiry test batch'
+  'source manager receives expiry test batch'
 );
 
 select lives_ok(
@@ -87,7 +90,7 @@ select lives_ok(
   $$select public.create_inventory_transfer(
     'c2000000-0000-4000-8000-000000000001','c3000000-0000-4000-8000-000000000001','c3000000-0000-4000-8000-000000000002',
     (select id from public.inventory_batches where batch_number = 'LOT-LATER'),8,'Branch replenishment','transfer-create-1')$$,
-  'source warehouse creates a draft transfer'
+  'source manager creates a draft transfer'
 );
 select lives_ok(
   $$select public.create_inventory_transfer(
@@ -98,17 +101,17 @@ select lives_ok(
 select is((select count(*) from public.inventory_transfers), 1::bigint, 'transfer creation retry does not duplicate the transfer');
 select lives_ok(
   format('select public.dispatch_inventory_transfer(%L,%L)', (select id::text from public.inventory_transfers), 'transfer-dispatch-1'),
-  'source warehouse dispatches the transfer'
+  'source manager dispatches the transfer'
 );
 select is((select status from public.inventory_transfers), 'dispatched', 'transfer is dispatched');
-select is((select count(*) from public.inventory_transfer_report), 1::bigint, 'source warehouse can read the shared transfer projection');
+select is((select count(*) from public.inventory_transfer_report), 1::bigint, 'source manager can read the shared transfer projection');
 select is((select stock_quantity from public.products where id = 'c4000000-0000-4000-8000-000000000001'), 30, 'tenant aggregate includes stock in transit');
 select is((select quantity from public.inventory_levels where location_id = 'c3000000-0000-4000-8000-000000000001'), 22, 'dispatch removes stock from source availability');
 select is((select count(*) from public.inventory_alerts where alert_type = 'TRANSFER_PENDING_RECEIPT' and status = 'active'), 0::bigint, 'source-only user cannot see destination transfer alert');
 select throws_ok(
   format('select public.receive_inventory_transfer(%L,3,%L)', (select id::text from public.inventory_transfers), 'transfer-receive-denied'),
   'P0001','Not authorized to receive this transfer',
-  'source warehouse cannot receive for an unauthorized destination'
+  'source manager cannot receive for an unauthorized destination'
 );
 
 select set_config('request.jwt.claims', '{"sub":"c1000000-0000-4000-8000-000000000002","role":"authenticated"}', true);
@@ -138,7 +141,7 @@ select lives_ok(
   $$select public.create_inventory_transfer(
     'c2000000-0000-4000-8000-000000000001','c3000000-0000-4000-8000-000000000001','c3000000-0000-4000-8000-000000000002',
     (select id from public.inventory_batches where location_id = 'c3000000-0000-4000-8000-000000000001' and batch_number = 'LOT-LATER'),4,'Partial cancellation','transfer-create-2')$$,
-  'source warehouse creates a second transfer'
+  'source manager creates a second transfer'
 );
 select lives_ok(
   format('select public.dispatch_inventory_transfer(%L,%L)', (select id::text from public.inventory_transfers where status = 'draft'), 'transfer-dispatch-2'),
@@ -160,6 +163,35 @@ select is((select sum(quantity)::integer from public.inventory_levels where tena
 select is((select stock_quantity from public.products where id = 'c4000000-0000-4000-8000-000000000001'), 30, 'tenant aggregate remains reconciled after transfers');
 
 set local role authenticated;
+select set_config('request.jwt.claims', '{"sub":"c1000000-0000-4000-8000-000000000004","role":"authenticated"}', true);
+select throws_ok(
+  $$select public.create_inventory_transfer(
+    'c2000000-0000-4000-8000-000000000001','c3000000-0000-4000-8000-000000000001','c3000000-0000-4000-8000-000000000002',
+    (select id from public.inventory_batches where location_id = 'c3000000-0000-4000-8000-000000000001' and batch_number = 'LOT-EARLY'),1,null,'warehouse-transfer')$$,
+  'P0001','Not authorized to create a transfer from this location',
+  'warehouse staff cannot create a transfer'
+);
+select throws_ok(
+  format('select public.dispatch_inventory_transfer(%L,%L)', (select id::text from public.inventory_transfers limit 1), 'warehouse-dispatch'),
+  'P0001','Not authorized to dispatch this transfer',
+  'warehouse staff cannot dispatch a transfer'
+);
+select throws_ok(
+  format('select public.cancel_inventory_transfer(%L,%L,%L)', (select id::text from public.inventory_transfers limit 1), 'warehouse-cancel', 'Not authorized'),
+  'P0001','Not authorized to cancel this transfer',
+  'warehouse staff cannot cancel a transfer'
+);
+
+select set_config('request.jwt.claims', '{"sub":"c1000000-0000-4000-8000-000000000001","role":"authenticated"}', true);
+select throws_ok(
+  $$select public.stock_out_batch(
+    'c2000000-0000-4000-8000-000000000001','c3000000-0000-4000-8000-000000000002','c4000000-0000-4000-8000-000000000001',
+    (select id from public.inventory_batches where location_id = 'c3000000-0000-4000-8000-000000000002' and batch_number = 'LOT-LATER'),
+    1,'DAMAGE','Unauthorized location','manager-destination-damage')$$,
+  'P0001','Not authorized to manage inventory at this location',
+  'batch stock-out requires access to the selected location'
+);
+
 select set_config('request.jwt.claims', '{"sub":"c1000000-0000-4000-8000-000000000003","role":"authenticated"}', true);
 select throws_ok(
   $$select public.create_inventory_transfer(

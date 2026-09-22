@@ -7,6 +7,7 @@ const INVENTORY_MANAGERS = new Set<TenantRole>([
   'warehouse',
 ]);
 const ORDER_MANAGERS = new Set<TenantRole>(['owner', 'admin', 'manager']);
+const TRANSFER_MANAGERS = new Set<TenantRole>(['owner', 'admin', 'manager']);
 
 export function canManageInventory(role: TenantRole): boolean {
   return INVENTORY_MANAGERS.has(role);
@@ -14,6 +15,14 @@ export function canManageInventory(role: TenantRole): boolean {
 
 export function canManageOrders(role: TenantRole): boolean {
   return ORDER_MANAGERS.has(role);
+}
+
+export function canManageTransfers(role: TenantRole): boolean {
+  return TRANSFER_MANAGERS.has(role);
+}
+
+export function canReceiveTransfers(role: TenantRole): boolean {
+  return INVENTORY_MANAGERS.has(role);
 }
 
 export function canAcknowledgeAlerts(role: TenantRole): boolean {
