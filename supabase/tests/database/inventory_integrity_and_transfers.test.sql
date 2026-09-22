@@ -155,9 +155,11 @@ select lives_ok(
   'source cancels the outstanding transfer balance'
 );
 select is((select count(*) from public.inventory_transfers where status = 'cancelled'), 1::bigint, 'partially received transfer becomes cancelled');
+reset role;
 select is((select sum(quantity)::integer from public.inventory_levels where tenant_id = 'c2000000-0000-4000-8000-000000000001'), 30, 'location balances reconcile after partial receipt and cancellation');
 select is((select stock_quantity from public.products where id = 'c4000000-0000-4000-8000-000000000001'), 30, 'tenant aggregate remains reconciled after transfers');
 
+set local role authenticated;
 select set_config('request.jwt.claims', '{"sub":"c1000000-0000-4000-8000-000000000003","role":"authenticated"}', true);
 select throws_ok(
   $$select public.create_inventory_transfer(

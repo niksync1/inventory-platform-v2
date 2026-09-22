@@ -349,7 +349,8 @@ begin
   where tenant_id = p_tenant_id and operation_id = p_operation_id;
   if found then
     select * into existing_transfer from public.inventory_transfers where id = existing_event.transfer_id;
-    select * into existing_item from public.inventory_transfer_items where transfer_id = existing_event.transfer_id;
+    select * into existing_item from public.inventory_transfer_items
+    where inventory_transfer_items.transfer_id = existing_event.transfer_id;
     if existing_event.event_type <> 'CREATED'
       or existing_transfer.source_location_id <> p_source_location_id
       or existing_transfer.destination_location_id <> p_destination_location_id
