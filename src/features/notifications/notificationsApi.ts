@@ -20,7 +20,7 @@ export async function registerExpoPushToken(tenantId: string, userId: string): P
   if (Platform.OS === 'android') await Notifications.setNotificationChannelAsync('inventory-alerts', { name: 'Inventory alerts', importance: Notifications.AndroidImportance.HIGH });
   const current = await Notifications.getPermissionsAsync(); const permission = current.status === 'granted' ? current : await Notifications.requestPermissionsAsync();
   if (permission.status !== 'granted') throw new Error('Notification permission was not granted.');
-  const projectId = Constants.easConfig?.projectId ?? Constants.expoConfig?.extra?.eas?.projectId;
+  const projectId = process.env.EXPO_PUBLIC_EAS_PROJECT_ID?.trim() || Constants.easConfig?.projectId || Constants.expoConfig?.extra?.eas?.projectId;
   if (!projectId) throw new Error('Configure the Expo EAS project ID before registering push notifications.');
   const token = (await Notifications.getExpoPushTokenAsync({ projectId })).data;
   const result = await supabase.from('expo_push_tokens').upsert({ tenant_id: tenantId, user_id: userId, token, platform: Platform.OS, is_active: true, last_seen_at: new Date().toISOString() }, { onConflict: 'tenant_id,user_id,token' });
