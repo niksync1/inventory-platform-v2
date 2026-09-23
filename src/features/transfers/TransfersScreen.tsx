@@ -4,12 +4,15 @@ import { createOperationId } from '../../core/inventory/operationId';
 import { validateQuantity } from '../../core/inventory/quantity';
 import { canManageTransfers, canReceiveTransfers } from '../../core/tenancy/permissions';
 import { colors, spacing } from '../../shared/theme';
+import { useAuth } from '../auth/AuthProvider';
+import { useOfflineSync } from '../offline/OfflineSyncProvider';
 import { useTenant } from '../tenancy/TenantProvider';
-import { cancelTransfer, dispatchTransfer, listTransfers, receiveTransfer, type InventoryTransfer } from './transfersApi';
+import { listTransfers, type InventoryTransfer } from './transfersApi';
 
 type Action = { transferId: string; type: 'receive' | 'cancel' } | null;
 
 export function TransfersScreen({ onBack }: { onBack: () => void }) {
+  const { session } = useAuth(); const { submit: submitOfflineOperation } = useOfflineSync();
   const { context, locations } = useTenant();
   const [transfers, setTransfers] = useState<InventoryTransfer[]>([]);
   const [loading, setLoading] = useState(true);
@@ -35,14 +38,23 @@ export function TransfersScreen({ onBack }: { onBack: () => void }) {
   function confirmDispatch(transfer: InventoryTransfer) {
     Alert.alert('Dispatch transfer?', `${transfer.quantityRequested} unit(s) will leave ${transfer.sourceLocationName} and remain in transit until received.`, [
       { text: 'Keep draft', style: 'cancel' },
-      { text: 'Dispatch', onPress: () => void run(transfer.id, () => dispatchTransfer(transfer.id, createOperationId())) },
+      { text: 'Dispatch', onPress: () => void run(transfer, 'transfer_dispatch', { transferId: transfer.id }) },
     ]);
   }
 
-  async function run(id: string, operation: () => Promise<void>) {
-    if (busyId) return;
-    setBusyId(id); setError(null);
-    try { await operation(); setAction(null); setQuantity(''); setReason(''); await load(); }
+  async function run(transfer: InventoryTransfer, kind: 'transfer_dispatch' | 'transfer_receive' | 'transfer_cancel', payload: { transferId: string; quantity?: number; reason?: string }) {
+    if (busyId || !session || !context) return;
+    setBusyId(transfer.id); setError(null);
+    try {
+      const base = { id: createOperationId(), userId: session.user.id, tenantId: context.tenant.id, locationId: context.locationId, productId: transfer.productId };
+      const result = kind === 'transfer_dispatch'
+        ? await submitOfflineOperation({ ...base, kind, payload: { transferId: payload.transferId } })
+        : kind === 'transfer_receive'
+          ? await submitOfflineOperation({ ...base, kind, payload: { transferId: payload.transferId, quantity: payload.quantity! } })
+          : await submitOfflineOperation({ ...base, kind, payload: { transferId: payload.transferId, reason: payload.reason! } });
+      if (result === 'queued') Alert.alert('Saved offline', 'This transfer action will sync automatically when the connection returns.');
+      setAction(null); setQuantity(''); setReason(''); if (result === 'completed') await load();
+    }
     catch (caught) { setError(caught instanceof Error ? caught.message : 'The transfer action failed.'); }
     finally { setBusyId(null); }
   }
@@ -51,12 +63,12 @@ export function TransfersScreen({ onBack }: { onBack: () => void }) {
     const checked = validateQuantity(quantity);
     if (!checked.valid) { setError(checked.reason); return; }
     if (checked.quantity > transfer.quantityOutstanding) { setError(`Only ${transfer.quantityOutstanding} unit(s) remain in transit.`); return; }
-    void run(transfer.id, () => receiveTransfer(transfer.id, checked.quantity, createOperationId()));
+    void run(transfer, 'transfer_receive', { transferId: transfer.id, quantity: checked.quantity });
   }
 
   function submitCancel(transfer: InventoryTransfer) {
     if (reason.trim().length < 3) { setError('Enter a cancellation reason of at least 3 characters.'); return; }
-    void run(transfer.id, () => cancelTransfer(transfer.id, reason.trim(), createOperationId()));
+    void run(transfer, 'transfer_cancel', { transferId: transfer.id, reason: reason.trim() });
   }
 
   return <ScrollView contentContainerStyle={styles.container} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); void load(); }} />}>
