@@ -21,7 +21,7 @@
       "supportsTablet": true
     },
     "android": {
-      "package": "com.ck1gh.inventoryplatformv2",
+      "package": "com.nick18gh.inventoryplatformv2",
       "googleServicesFile": "./google-services.json",
       "predictiveBackGestureEnabled": false,
       "permissions": [

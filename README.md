@@ -19,7 +19,7 @@ existing Supabase project as the system of record.
 
 ## Local Android push setup
 
-The permanent Android application ID is `com.ck1gh.inventoryplatformv2`. Register
+The permanent Android application ID is `com.nick18gh.inventoryplatformv2`. Register
 an Android app with that exact ID in Firebase, download its `google-services.json`,
 and place the file in the repository root. The file is intentionally ignored by
 Git. Never place the Firebase service-account private key in the repository.
