@@ -43,3 +43,5 @@ firebase-service-account*.json
 /android
 
 audit/backups/
+
+inventoryplatformv2-firebase-adminsdk-*.json
