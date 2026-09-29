@@ -14,13 +14,24 @@
           "recordAudioAndroid": false
         }
       ],
-      "@react-native-community/datetimepicker"
+      "@react-native-community/datetimepicker",
+      "expo-notifications"
     ],
     "ios": {
       "supportsTablet": true
     },
     "android": {
-      "predictiveBackGestureEnabled": false
+      "package": "com.nick18gh.inventoryplatformv2",
+      "googleServicesFile": "./google-services.json",
+      "predictiveBackGestureEnabled": false,
+      "permissions": [
+        "android.permission.CAMERA"
+      ]
+    },
+    "extra": {
+      "eas": {
+        "projectId": "0943eae2-4ecc-4040-9ce7-12423d534f4a"
+      }
     }
   }
 }

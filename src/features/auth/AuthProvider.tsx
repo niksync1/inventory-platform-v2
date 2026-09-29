@@ -20,6 +20,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
       const keys = await AsyncStorage.getAllKeys();
       const owned = keys.filter(key => key === `tenant-selection:v1:${userId}`
         || key.startsWith(`offline:operations:v3:${userId}:`)
+        || key.startsWith(`offline:operations:v4:${userId}:`)
         || key.startsWith(`reports:v1:${userId}:`)
         || key.startsWith(`reports:v2:${userId}:`));
       if (owned.length) await AsyncStorage.multiRemove(owned);
