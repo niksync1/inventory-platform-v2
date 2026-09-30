@@ -17,6 +17,24 @@ existing Supabase project as the system of record.
 2. Copy `.env.example` to `.env.local` and enter the Supabase URL and anon key.
 3. Run `npm start`.
 
+## Local Android push setup
+
+The permanent Android application ID is `com.nick18gh.inventoryplatformv2`. Register
+an Android app with that exact ID in Firebase, download its `google-services.json`,
+and place the file in the repository root. The file is intentionally ignored by
+Git. Never place the Firebase service-account private key in the repository.
+
+After adding or changing Firebase/native configuration, regenerate and install
+the local development client:
+
+```powershell
+npx expo prebuild --clean
+npx expo run:android --device
+```
+
+For later JavaScript-only changes, use `npx expo start --dev-client` without
+rebuilding the APK.
+
 ## Validation
 
 Run `npm run typecheck` and `npm test`.
