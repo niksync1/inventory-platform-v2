@@ -8,6 +8,7 @@ const supabase = createClient(
 const cors = { 'content-type': 'application/json' };
 const EXPO_RECEIPT_URL = 'https://exp.host/--/api/v2/push/getReceipts';
 const RECEIPT_WAIT_MINUTES = 15;
+const RECEIPT_RETENTION_HOURS = 24;
 const MAX_RECEIPTS_PER_REQUEST = 1000;
 
 Deno.serve(async request => {
@@ -25,6 +26,37 @@ Deno.serve(async request => {
   const receiptCutoff = new Date(
     now.getTime() - RECEIPT_WAIT_MINUTES * 60_000,
   ).toISOString();
+  const receiptExpiryCutoff = new Date(
+    now.getTime() - RECEIPT_RETENTION_HOURS * 60 * 60_000,
+  ).toISOString();
+
+  // Stop querying Expo for tickets older than its receipt-retention window.
+  // "expired" means the receipt is unavailable; delivery outcome is unknown.
+  const expiredResult = await supabase
+    .from('inventory_notification_outbox')
+    .update(
+      {
+        expo_receipt_status: 'expired',
+        expo_receipt_checked_at: now.toISOString(),
+        expo_receipt_error:
+          'Expo receipt unavailable after the 24-hour receipt retention period. Delivery outcome is unknown.',
+        updated_at: now.toISOString(),
+      },
+      { count: 'exact' },
+    )
+    .eq('status', 'sent')
+    .eq('expo_receipt_status', 'pending')
+    .not('expo_ticket_id', 'is', null)
+    .lte('sent_at', receiptExpiryCutoff);
+
+  if (expiredResult.error) {
+    return new Response(
+      JSON.stringify({ error: expiredResult.error.message }),
+      { status: 500, headers: cors },
+    );
+  }
+
+  const expired = expiredResult.count ?? 0;
 
   const result = await supabase
     .from('inventory_notification_outbox')
@@ -58,6 +90,7 @@ Deno.serve(async request => {
         delivered: 0,
         failed: 0,
         pending: 0,
+        expired,
       }),
       { headers: cors },
     );
@@ -155,6 +188,7 @@ Deno.serve(async request => {
       delivered,
       failed,
       pending,
+      expired,
     }),
     { headers: cors },
   );
@@ -163,7 +197,7 @@ Deno.serve(async request => {
 async function updateReceipt(
   id: string,
   update: {
-    expo_receipt_status: 'pending' | 'ok' | 'error';
+    expo_receipt_status: 'pending' | 'ok' | 'error' | 'expired';
     expo_receipt_checked_at: string;
     expo_receipt_error: string | null;
   },
