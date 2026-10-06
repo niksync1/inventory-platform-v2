@@ -1,3 +1,4 @@
+import { Ionicons } from '@expo/vector-icons';
 import { useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Alert, Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { canManageInventory, canOpenAdminDashboard } from '../../core/tenancy/permissions';
@@ -94,40 +95,15 @@ export function HomeScreen({ onChangeContext, onInventory, onReports, onAlerts, 
     {error ? <Text style={styles.error}>{error}</Text> : null}
 
     <Text style={styles.sectionTitle}>MENU</Text>
-    <Pressable accessibilityRole="button" onPress={onInventory} style={styles.primary}>
-      <Text style={styles.primaryText}>Open inventory</Text>
-      <Text style={styles.primaryMeta}>{canManageInventory(context.membership.role) ? 'Stock operations available for your role' : 'Read-only access for your role'}</Text>
-    </Pressable>
-
-    <Pressable accessibilityRole="button" onPress={onReports} style={styles.outline}>
-      <Text style={styles.outlineText}>Reports</Text>
-      <Text style={styles.outlineMeta}>Location activity, performers and CSV export</Text>
-    </Pressable>
-
-    <Pressable accessibilityRole="button" onPress={onAlerts} style={styles.outline}>
-      <Text style={styles.outlineText}>Alerts{activeAlerts ? ` (${activeAlerts})` : ''}</Text>
-      <Text style={styles.outlineMeta}>Low stock, damaged and expired goods</Text>
-    </Pressable>
-
-    <Pressable accessibilityRole="button" onPress={onTransfers} style={styles.outline}>
-      <Text style={styles.outlineText}>Transfers</Text>
-      <Text style={styles.outlineMeta}>Dispatch, receive and audit stock moving between locations</Text>
-    </Pressable>
-
-    <Pressable accessibilityRole="button" onPress={onOfflineSync} style={styles.outline}>
-      <Text style={styles.outlineText}>Offline sync{pendingCount || failedCount ? ` (${pendingCount + failedCount})` : ''}</Text>
-      <Text style={styles.outlineMeta}>{failedCount ? `${failedCount} operation(s) need attention` : syncing ? 'Synchronizing queued operations' : pendingCount ? 'Waiting to synchronize' : 'All operations synchronized'}</Text>
-    </Pressable>
-
-    <Pressable accessibilityRole="button" onPress={onNotifications} style={styles.outline}>
-      <Text style={styles.outlineText}>Notification preferences</Text>
-      <Text style={styles.outlineMeta}>Push, email and alert-type choices</Text>
-    </Pressable>
-
-    {isOwner && dashboardUrl ? <Pressable accessibilityRole="link" onPress={() => void openAdminDashboard()} style={styles.outline}>
-      <Text style={styles.outlineText}>Open Admin Dashboard</Text>
-      <Text style={styles.outlineMeta}>Owner-only business and staff administration</Text>
-    </Pressable> : null}
+    <View style={styles.menuGrid}>
+      <MenuAction icon="cube-outline" title="Inventory" onPress={onInventory} primary={canManageInventory(context.membership.role)} />
+      <MenuAction icon="bar-chart-outline" title="Reports" onPress={onReports} />
+      <MenuAction icon="notifications-outline" title={activeAlerts ? 'Alerts (' + activeAlerts + ')' : 'Alerts'} onPress={onAlerts} />
+      <MenuAction icon="swap-horizontal-outline" title="Transfers" onPress={onTransfers} />
+      <MenuAction icon="cloud-offline-outline" title={pendingCount || failedCount ? 'Offline sync (' + (pendingCount + failedCount) + ')' : 'Offline sync'} onPress={onOfflineSync} />
+      <MenuAction icon="settings-outline" title="Notifications" onPress={onNotifications} />
+      {isOwner && dashboardUrl ? <MenuAction icon="shield-checkmark-outline" title="Admin dashboard" onPress={() => void openAdminDashboard()} /> : null}
+    </View>
 
     <View style={styles.card}>
       <Text style={styles.cardTitle}>Tenant isolation active</Text>
@@ -142,6 +118,13 @@ export function HomeScreen({ onChangeContext, onInventory, onReports, onAlerts, 
 
 function Metric({ label, value }: { label: string; value: number | undefined }) {
   return <View style={styles.metric}><Text style={styles.metricValue}>{value ?? '—'}</Text><Text style={styles.meta}>{label}</Text></View>;
+}
+
+function MenuAction({ icon, title, onPress, primary = false }: { icon: React.ComponentProps<typeof Ionicons>['name']; title: string; onPress: () => void; primary?: boolean }) {
+  return <Pressable accessibilityRole="button" onPress={onPress} style={[styles.menuAction, primary && styles.menuActionPrimary]}>
+    <Ionicons name={icon} size={28} color={primary ? '#fff' : colors.primary} />
+    <Text style={[styles.menuActionText, primary && styles.menuActionTextPrimary]} numberOfLines={2}>{title}</Text>
+  </Pressable>;
 }
 
 const styles = StyleSheet.create({
@@ -163,6 +146,11 @@ const styles = StyleSheet.create({
   loader: { marginTop: spacing.lg },
   error: { color: '#B42318', marginTop: spacing.md },
   sectionTitle: { color: colors.text, fontSize: 16, fontWeight: '700', marginTop: spacing.xl },
+  menuGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginTop: spacing.md },
+  menuAction: { alignItems: 'center', backgroundColor: colors.surface, borderColor: colors.border, borderRadius: 14, borderWidth: 1, flexBasis: '48%', flexGrow: 1, justifyContent: 'center', minHeight: 108, padding: spacing.md },
+  menuActionPrimary: { backgroundColor: colors.primary, borderColor: colors.primary },
+  menuActionText: { color: colors.text, fontSize: 14, fontWeight: '700', marginTop: spacing.sm, textAlign: 'center' },
+  menuActionTextPrimary: { color: '#fff' },
   primary: { alignItems: 'center', backgroundColor: colors.primary, borderRadius: 12, marginTop: spacing.md, padding: spacing.md },
   primaryText: { color: '#fff', fontWeight: '700' },
   primaryMeta: { color: '#fff', fontSize: 12, marginTop: spacing.xs, opacity: 0.85, textAlign: 'center' },
