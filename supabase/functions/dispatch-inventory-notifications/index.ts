@@ -146,7 +146,6 @@ Deno.serve(async request => {
               .from('expo_push_tokens')
               .update({
                 is_active: false,
-                updated_at: new Date().toISOString(),
               })
               .eq('tenant_id', item.tenant_id)
               .eq('user_id', item.user_id)
