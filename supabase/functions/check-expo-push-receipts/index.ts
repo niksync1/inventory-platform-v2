@@ -183,7 +183,7 @@ Deno.serve(async request => {
     if (errorCode === 'DeviceNotRegistered') {
       const deactivation = await supabase
         .from('expo_push_tokens')
-        .update({ is_active: false })
+        .update({ is_active: false }, { count: 'exact' })
         .eq('id', item.token_id)
         .eq('is_active', true);
 
