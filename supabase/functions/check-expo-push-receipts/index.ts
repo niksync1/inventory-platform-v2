@@ -30,24 +30,22 @@ Deno.serve(async request => {
     now.getTime() - RECEIPT_RETENTION_HOURS * 60 * 60_000,
   ).toISOString();
 
-  // Stop querying Expo for tickets older than its receipt-retention window.
-  // "expired" means the receipt is unavailable; delivery outcome is unknown.
   const expiredResult = await supabase
-    .from('inventory_notification_outbox')
+    .from('inventory_notification_push_deliveries')
     .update(
       {
-        expo_receipt_status: 'expired',
-        expo_receipt_checked_at: now.toISOString(),
-        expo_receipt_error:
+        receipt_status: 'expired',
+        receipt_checked_at: now.toISOString(),
+        receipt_error:
           'Expo receipt unavailable after the 24-hour receipt retention period. Delivery outcome is unknown.',
         updated_at: now.toISOString(),
       },
       { count: 'exact' },
     )
-    .eq('status', 'sent')
-    .eq('expo_receipt_status', 'pending')
+    .eq('ticket_status', 'ok')
+    .eq('receipt_status', 'pending')
     .not('expo_ticket_id', 'is', null)
-    .lte('sent_at', receiptExpiryCutoff);
+    .lte('created_at', receiptExpiryCutoff);
 
   if (expiredResult.error) {
     return new Response(
@@ -59,19 +57,18 @@ Deno.serve(async request => {
   const expired = expiredResult.count ?? 0;
 
   const result = await supabase
-    .from('inventory_notification_outbox')
+    .from('inventory_notification_push_deliveries')
     .select(
-      'id,expo_ticket_id,expo_receipt_checked_at,expo_receipt_status',
+      'id,token_id,expo_ticket_id,receipt_checked_at,receipt_status',
     )
-    .eq('status', 'sent')
+    .eq('ticket_status', 'ok')
     .not('expo_ticket_id', 'is', null)
-    .eq('expo_receipt_status', 'pending')
-    .lte('sent_at', receiptCutoff)
+    .eq('receipt_status', 'pending')
+    .lte('created_at', receiptCutoff)
     .or(
-      'expo_receipt_checked_at.is.null,expo_receipt_checked_at.lte.' +
-        receiptCutoff,
+      'receipt_checked_at.is.null,receipt_checked_at.lte.' + receiptCutoff,
     )
-    .order('sent_at')
+    .order('created_at')
     .limit(MAX_RECEIPTS_PER_REQUEST);
 
   if (result.error) {
@@ -139,32 +136,34 @@ Deno.serve(async request => {
   let delivered = 0;
   let failed = 0;
   let pending = 0;
+  let deactivated = 0;
 
   for (const item of items) {
     const ticketId = item.expo_ticket_id as string;
     const receipt = receipts[ticketId];
 
     if (!receipt) {
-      await updateReceipt(item.id, {
-        expo_receipt_status: 'pending',
-        expo_receipt_checked_at: checkedAt,
-        expo_receipt_error: null,
+      await updateDelivery(item.id, {
+        receipt_status: 'pending',
+        receipt_checked_at: checkedAt,
+        receipt_error: null,
       });
       pending += 1;
       continue;
     }
 
     if (receipt.status === 'ok') {
-      await updateReceipt(item.id, {
-        expo_receipt_status: 'ok',
-        expo_receipt_checked_at: checkedAt,
-        expo_receipt_error: null,
+      await updateDelivery(item.id, {
+        receipt_status: 'ok',
+        receipt_checked_at: checkedAt,
+        receipt_error: null,
       });
       delivered += 1;
       continue;
     }
 
     const errorDetails = receipt.details ?? {};
+    const errorCode = errorDetails.error;
     const errorMessage = [
       receipt.message ?? 'Expo receipt reported an error',
       Object.keys(errorDetails).length
@@ -174,12 +173,23 @@ Deno.serve(async request => {
       .filter(Boolean)
       .join(' ');
 
-    await updateReceipt(item.id, {
-      expo_receipt_status: 'error',
-      expo_receipt_checked_at: checkedAt,
-      expo_receipt_error: errorMessage,
+    await updateDelivery(item.id, {
+      receipt_status: 'error',
+      receipt_checked_at: checkedAt,
+      receipt_error: errorMessage,
     });
     failed += 1;
+
+    if (errorCode === 'DeviceNotRegistered') {
+      const deactivation = await supabase
+        .from('expo_push_tokens')
+        .update({ is_active: false })
+        .eq('id', item.token_id)
+        .eq('is_active', true);
+
+      if (deactivation.error) throw deactivation.error;
+      if (deactivation.count === 1) deactivated += 1;
+    }
   }
 
   return new Response(
@@ -189,21 +199,22 @@ Deno.serve(async request => {
       failed,
       pending,
       expired,
+      deactivated,
     }),
     { headers: cors },
   );
 });
 
-async function updateReceipt(
+async function updateDelivery(
   id: string,
   update: {
-    expo_receipt_status: 'pending' | 'ok' | 'error' | 'expired';
-    expo_receipt_checked_at: string;
-    expo_receipt_error: string | null;
+    receipt_status: 'pending' | 'ok' | 'error' | 'expired';
+    receipt_checked_at: string;
+    receipt_error: string | null;
   },
 ) {
   const result = await supabase
-    .from('inventory_notification_outbox')
+    .from('inventory_notification_push_deliveries')
     .update({
       ...update,
       updated_at: new Date().toISOString(),
