@@ -67,7 +67,7 @@ Deno.serve(async request => {
       if (item.channel === 'push') {
         const tokens = await supabase
           .from('expo_push_tokens')
-          .select('token')
+          .select('id,token')
           .eq('tenant_id', item.tenant_id)
           .eq('user_id', item.user_id)
           .eq('is_active', true);
@@ -120,26 +120,87 @@ Deno.serve(async request => {
           );
         }
 
-        const ticketErrors = tickets
-          .map((ticket: { status?: string; message?: string; details?: unknown }) =>
+        const ticketErrors: string[] = [];
+        const successfulTickets: { id: string }[] = [];
+
+        for (let index = 0; index < tickets.length; index += 1) {
+          const ticket = tickets[index] as {
+            status?: string;
+            id?: string;
+            message?: string;
+            details?: { error?: string; [key: string]: unknown };
+          };
+          const tokenRow = tokens.data[index];
+          const token = tokenRow?.token;
+
+          if (ticket?.status === 'ok' && typeof ticket.id === 'string' && tokenRow?.id) {
+            successfulTickets.push({ id: ticket.id });
+
+            const delivery = await supabase
+              .from('inventory_notification_push_deliveries')
+              .insert({
+                outbox_id: item.id,
+                token_id: tokenRow.id,
+                expo_ticket_id: ticket.id,
+                ticket_status: 'ok',
+                receipt_status: 'pending',
+              });
+
+            if (delivery.error) throw delivery.error;
+            continue;
+          }
+
+          if (
+            ticket?.status === 'error' &&
+            ticket?.details?.error === 'DeviceNotRegistered' &&
+            token &&
+            tokenRow?.id
+          ) {
+            const delivery = await supabase
+              .from('inventory_notification_push_deliveries')
+              .insert({
+                outbox_id: item.id,
+                token_id: tokenRow.id,
+                ticket_status: 'error',
+                receipt_status: 'error',
+                receipt_checked_at: new Date().toISOString(),
+                receipt_error: 'DeviceNotRegistered',
+              });
+
+            if (delivery.error) throw delivery.error;
+
+            const deactivation = await supabase
+              .from('expo_push_tokens')
+              .update({ is_active: false })
+              .eq('id', tokenRow.id)
+              .eq('is_active', true);
+
+            if (deactivation.error) throw deactivation.error;
+            continue;
+          }
+
+          ticketErrors.push(
             ticket?.status === 'error'
               ? `${ticket.message ?? 'Expo ticket error'} ${JSON.stringify(ticket.details ?? {})}`
-              : ticket?.status !== 'ok' || typeof ticket.id !== 'string'
-                ? `Invalid Expo ticket: ${JSON.stringify(ticket)}`
-                : null,
-          )
-          .filter(Boolean);
+              : `Invalid Expo ticket: ${JSON.stringify(ticket)}`,
+          );
+        }
 
         if (ticketErrors.length > 0) {
           throw new Error(ticketErrors.join('; '));
         }
 
-        // The outbox is currently one row per user/channel. Preserve the first
-        // ticket for receipt diagnostics; the user currently has one active device.
+        if (successfulTickets.length === 0) {
+          await finish(item.id, 'skipped', 'All active Expo push tokens are no longer registered');
+          skipped += 1;
+          continue;
+        }
+
+        // Keep the existing outbox-level ticket for backward-compatible diagnostics.
         const trackingUpdate = await supabase
           .from('inventory_notification_outbox')
           .update({
-            expo_ticket_id: tickets[0].id,
+            expo_ticket_id: successfulTickets[0].id,
             expo_receipt_status: 'pending',
             expo_receipt_checked_at: null,
             expo_receipt_error: null,
