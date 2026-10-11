@@ -350,9 +350,12 @@ async function finish(
       sent_at: status === 'sent' ? new Date().toISOString() : null,
       updated_at: new Date().toISOString(),
     })
-    .eq('id', id);
+    .eq('id', id)
+    .select('id')
+    .maybeSingle();
 
   if (result.error) throw result.error;
+  if (!result.data) throw new Error(`Outbox status update affected no row: ${id}`);
 }
 
 function titleFor(type: string) {
