@@ -18,6 +18,29 @@ Deno.serve(async request => {
   }
 
   const now = new Date().toISOString();
+
+  // Recover abandoned claims. The 10-minute lease is longer than the function's
+  // expected runtime. Push deliveries already accepted by Expo are preserved
+  // in the delivery table and excluded from subsequent attempts below.
+  const staleProcessingCutoff = new Date(Date.now() - 10 * 60_000).toISOString();
+  const recovery = await supabase
+    .from('inventory_notification_outbox')
+    .update({
+      status: 'failed',
+      next_attempt_at: now,
+      last_error: 'Recovered stale processing claim; delivery outcome may be unknown.',
+      updated_at: now,
+    })
+    .eq('status', 'processing')
+    .lt('updated_at', staleProcessingCutoff);
+
+  if (recovery.error) {
+    return new Response(JSON.stringify({ error: recovery.error.message }), {
+      status: 500,
+      headers: cors,
+    });
+  }
+
   const result = await supabase
     .from('inventory_notification_outbox')
     .select('id,tenant_id,alert_id,user_id,channel,attempts')
@@ -46,6 +69,12 @@ Deno.serve(async request => {
       .select('id')
       .maybeSingle();
 
+    if (claimed.error) {
+      return new Response(JSON.stringify({ error: claimed.error.message }), {
+        status: 500,
+        headers: cors,
+      });
+    }
     if (!claimed.data) continue;
 
     try {
@@ -74,9 +103,31 @@ Deno.serve(async request => {
 
         if (tokens.error) throw tokens.error;
 
-        if (!tokens.data?.length) {
-          await finish(item.id, 'skipped', 'No active Expo push token');
-          skipped += 1;
+        // A successful Expo ticket means the provider accepted that device's
+        // notification. Never resend to that device when retrying this outbox
+        // item because another device in the same batch failed.
+        const priorDeliveries = await supabase
+          .from('inventory_notification_push_deliveries')
+          .select('token_id')
+          .eq('outbox_id', item.id)
+          .eq('ticket_status', 'ok');
+
+        if (priorDeliveries.error) throw priorDeliveries.error;
+        const acceptedTokenIds = new Set(
+          (priorDeliveries.data ?? []).map(delivery => delivery.token_id),
+        );
+        const targetTokens = (tokens.data ?? []).filter(
+          tokenRow => !acceptedTokenIds.has(tokenRow.id),
+        );
+
+        if (!targetTokens.length) {
+          if (acceptedTokenIds.size > 0) {
+            await finish(item.id, 'sent', null);
+            sent += 1;
+          } else {
+            await finish(item.id, 'skipped', 'No active Expo push token');
+            skipped += 1;
+          }
           continue;
         }
 
@@ -86,7 +137,7 @@ Deno.serve(async request => {
             method: 'POST',
             headers: { 'content-type': 'application/json' },
             body: JSON.stringify(
-              tokens.data.map(({ token }) => ({
+              targetTokens.map(({ token }) => ({
                 to: token,
                 sound: 'default',
                 channelId: 'inventory-alerts',
@@ -114,9 +165,9 @@ Deno.serve(async request => {
           ? expoResult.data
           : [expoResult.data];
 
-        if (tickets.length !== tokens.data.length || tickets.length === 0) {
+        if (tickets.length !== targetTokens.length || tickets.length === 0) {
           throw new Error(
-            `Unexpected Expo ticket count: received ${tickets.length} for ${tokens.data.length} token(s). Response: ${JSON.stringify(expoResult)}`,
+            `Unexpected Expo ticket count: received ${tickets.length} for ${targetTokens.length} token(s). Response: ${JSON.stringify(expoResult)}`,
           );
         }
 
@@ -130,7 +181,7 @@ Deno.serve(async request => {
             message?: string;
             details?: { error?: string; [key: string]: unknown };
           };
-          const tokenRow = tokens.data[index];
+          const tokenRow = targetTokens[index];
           const token = tokenRow?.token;
 
           if (ticket?.status === 'ok' && typeof ticket.id === 'string' && tokenRow?.id) {
@@ -179,11 +230,25 @@ Deno.serve(async request => {
             continue;
           }
 
-          ticketErrors.push(
-            ticket?.status === 'error'
-              ? `${ticket.message ?? 'Expo ticket error'} ${JSON.stringify(ticket.details ?? {})}`
-              : `Invalid Expo ticket: ${JSON.stringify(ticket)}`,
-          );
+          const ticketError = ticket?.status === 'error'
+            ? `${ticket.message ?? 'Expo ticket error'} ${JSON.stringify(ticket.details ?? {})}`
+            : `Invalid Expo ticket: ${JSON.stringify(ticket)}`;
+
+          // Persist the failed device attempt for diagnosis. It remains
+          // retryable because only ticket_status='ok' deliveries are excluded.
+          const failedDelivery = await supabase
+            .from('inventory_notification_push_deliveries')
+            .insert({
+              outbox_id: item.id,
+              token_id: tokenRow.id,
+              ticket_status: 'error',
+              receipt_status: 'error',
+              receipt_checked_at: new Date().toISOString(),
+              receipt_error: ticketError,
+            });
+
+          if (failedDelivery.error) throw failedDelivery.error;
+          ticketErrors.push(ticketError);
         }
 
         if (ticketErrors.length > 0) {
@@ -246,7 +311,7 @@ Deno.serve(async request => {
         Date.now() + Math.min(60, 2 ** attempts) * 60_000,
       ).toISOString();
 
-      await supabase
+      const failureUpdate = await supabase
         .from('inventory_notification_outbox')
         .update({
           status: 'failed',
@@ -256,6 +321,13 @@ Deno.serve(async request => {
           updated_at: new Date().toISOString(),
         })
         .eq('id', item.id);
+
+      if (failureUpdate.error) {
+        return new Response(JSON.stringify({ error: failureUpdate.error.message }), {
+          status: 500,
+          headers: cors,
+        });
+      }
       failed += 1;
     }
   }
@@ -270,7 +342,7 @@ async function finish(
   status: 'sent' | 'skipped',
   lastError: string | null,
 ) {
-  await supabase
+  const result = await supabase
     .from('inventory_notification_outbox')
     .update({
       status,
@@ -278,7 +350,12 @@ async function finish(
       sent_at: status === 'sent' ? new Date().toISOString() : null,
       updated_at: new Date().toISOString(),
     })
-    .eq('id', id);
+    .eq('id', id)
+    .select('id')
+    .maybeSingle();
+
+  if (result.error) throw result.error;
+  if (!result.data) throw new Error(`Outbox status update affected no row: ${id}`);
 }
 
 function titleFor(type: string) {
