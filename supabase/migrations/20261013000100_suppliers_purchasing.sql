@@ -139,7 +139,22 @@ create policy "Assigned members read receipt items" on public.purchase_receipt_i
 using (exists(select 1 from public.purchase_receipts r where r.tenant_id=purchase_receipt_items.tenant_id
   and r.id=purchase_receipt_items.receipt_id and public.can_access_location(r.tenant_id,r.location_id)));
 create policy "Purchasing managers read supplier payments" on public.supplier_payments for select to authenticated
-using (public.can_manage_orders(tenant_id));
+using (public.can_manage_orders(tenant_id) and exists (
+ select 1 from public.purchase_orders po where po.tenant_id=supplier_payments.tenant_id
+ and po.id=supplier_payments.purchase_order_id and public.can_access_location(po.tenant_id,po.location_id)
+));
+
+-- The non-login inventory RPC executor is the owner of the write RPCs. These
+-- policies do not expose writes to client roles; clients cannot SET ROLE to it.
+create policy "RPC executor manages suppliers" on public.suppliers for all to inventory_rpc_executor using (true) with check (true);
+create policy "RPC executor manages purchase orders" on public.purchase_orders for all to inventory_rpc_executor using (true) with check (true);
+create policy "RPC executor manages purchase order items" on public.purchase_order_items for all to inventory_rpc_executor using (true) with check (true);
+create policy "RPC executor manages purchase receipts" on public.purchase_receipts for all to inventory_rpc_executor using (true) with check (true);
+create policy "RPC executor manages receipt items" on public.purchase_receipt_items for all to inventory_rpc_executor using (true) with check (true);
+create policy "RPC executor manages supplier payments" on public.supplier_payments for all to inventory_rpc_executor using (true) with check (true);
+
+grant select,insert,update,delete on public.suppliers,public.purchase_orders,public.purchase_order_items,
+ public.purchase_receipts,public.purchase_receipt_items,public.supplier_payments to inventory_rpc_executor;
 
 create view public.purchase_order_report with (security_invoker = true) as
 select po.id,po.tenant_id,po.location_id,po.supplier_id,s.name as supplier_name,
@@ -229,7 +244,8 @@ declare v_po public.purchase_orders%rowtype; v_paid numeric(14,2); v_id uuid:=ge
 begin
  select * into v_po from public.purchase_orders where id=p_purchase_order_id for update;
  if not found then raise exception 'Purchase order not found'; end if;
- if not public.has_tenant_role(v_po.tenant_id,array['owner','admin','manager']) then raise exception 'Not authorized to record supplier payments'; end if;
+ if not public.has_tenant_role(v_po.tenant_id,array['owner','admin','manager'])
+   or not public.can_access_location(v_po.tenant_id,v_po.location_id) then raise exception 'Not authorized to record supplier payments for this location'; end if;
  if p_amount is null or p_amount<=0 then raise exception 'Payment amount must be positive'; end if;
  if p_payment_method not in ('cash','bank_transfer','mobile_money','card','other') then raise exception 'Invalid payment method'; end if;
  select coalesce(sum(amount),0) into v_paid from public.supplier_payments where tenant_id=v_po.tenant_id and purchase_order_id=v_po.id;
