@@ -249,8 +249,8 @@ begin
  if v_po.status in ('received','cancelled') then raise exception 'This purchase order is not open for receiving'; end if;
  if p_items is null or jsonb_typeof(p_items)<>'array' then raise exception 'Received items must be an array'; end if;
  if jsonb_array_length(p_items)=0 then raise exception 'At least one received line is required'; end if;
- insert into public.purchase_receipts(tenant_id,purchase_order_id,location_id,reference,received_by,operation_id,request_payload,notes)
- values(v_po.tenant_id,v_po.id,v_po.location_id,'GRN-'||to_char(current_date,'YYYYMMDD')||'-'||upper(left(replace(v_receipt_id::text,'-',''),8)),(v_context->>'user_id')::uuid,p_operation_id,
+ insert into public.purchase_receipts(id,tenant_id,purchase_order_id,location_id,reference,received_by,operation_id,request_payload,notes)
+ values(v_receipt_id,v_po.tenant_id,v_po.id,v_po.location_id,'GRN-'||to_char(current_date,'YYYYMMDD')||'-'||upper(left(replace(v_receipt_id::text,'-',''),8)),(v_context->>'user_id')::uuid,p_operation_id,
  jsonb_build_object('purchase_order_id',p_purchase_order_id,'items',p_items,'notes',nullif(btrim(p_notes),'')),nullif(btrim(p_notes),''));
  for v_item in select value from jsonb_array_elements(p_items) loop
    select * into v_line from public.purchase_order_items where tenant_id=v_po.tenant_id and id=(v_item->>'item_id')::uuid and purchase_order_id=v_po.id for update;
