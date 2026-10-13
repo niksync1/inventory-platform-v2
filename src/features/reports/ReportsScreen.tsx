@@ -1,7 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import DateTimePicker, { type DateTimePickerEvent } from '@react-native-community/datetimepicker';
 import { useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Alert, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View, type StyleProp, type ViewStyle } from 'react-native';
+import { ActivityIndicator, Alert, Modal, Platform, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View, type StyleProp, type ViewStyle } from 'react-native';
 import { colors, spacing } from '../../shared/theme';
 import { useAuth } from '../auth/AuthProvider';
 import { useTenant } from '../tenancy/TenantProvider';
@@ -33,6 +33,7 @@ export function ReportsScreen({ onBack }: { onBack: () => void }) {
   const [settingsMessage, setSettingsMessage] = useState<string | null>(null);
   const [savingSettings, setSavingSettings] = useState(false);
   const [exporting, setExporting] = useState<string | null>(null);
+  const [includeExpiry, setIncludeExpiry] = useState(true);
   const location = useMemo(() => locations.find(item => item.id === context?.locationId), [context, locations]);
 
   useEffect(() => {
@@ -85,13 +86,13 @@ export function ReportsScreen({ onBack }: { onBack: () => void }) {
       const prefix = target === 'transactions' ? 'inventory-report' : 'batch-expiry-report';
       const fileName = reportExportFileName(prefix, rangeLabel, format);
       if (format === 'csv') {
-        const csv = target === 'transactions' ? reportToCsv(report) : expiryReportToCsv(report);
+        const csv = target === 'transactions' ? reportToCsv(report, includeExpiry) : expiryReportToCsv(report);
         const saved = await exportCsvToDevice(fileName, csv);
         if (!saved) Alert.alert('Export cancelled', 'No file was saved because the folder selection was cancelled.');
         else if (Platform.OS === 'android') Alert.alert('Export saved', `Saved ${fileName} to the selected folder.`);
       } else {
         const html = target === 'transactions'
-          ? reportToPdfHtml(report, context.tenant.name, location?.name ?? 'Location', formatRange(appliedRange, appliedSingleDay))
+          ? reportToPdfHtml(report, context.tenant.name, location?.name ?? 'Location', formatRange(appliedRange, appliedSingleDay), includeExpiry)
           : expiryReportToPdfHtml(report, context.tenant.name, location?.name ?? 'Location');
         const saved = await exportPdfToDevice(fileName, html);
         if (!saved) Alert.alert('Export cancelled', 'No file was saved because the folder selection was cancelled.');
@@ -238,6 +239,7 @@ export function ReportsScreen({ onBack }: { onBack: () => void }) {
         {item.remarks ? <Text style={styles.body}>{item.remarks}</Text> : null}
       </View>)}
       {!report.transactions.length ? <Text style={styles.body}>No transactions match the selected date range.</Text> : null}
+      <Toggle label="Include batch expiry report" onChange={setIncludeExpiry} value={includeExpiry} />
       <View style={styles.exportActions}>
         <Pressable disabled={exporting !== null} style={[styles.outline, styles.exportButton, exporting !== null && styles.disabled]} onPress={() => void exportReport('transactions', 'csv')}><Text style={styles.outlineText}>{exporting === 'transactions-csv' ? 'Preparing…' : 'Download CSV'}</Text></Pressable>
         <Pressable disabled={exporting !== null} style={[styles.outline, styles.exportButton, exporting !== null && styles.disabled]} onPress={() => void exportReport('transactions', 'pdf')}><Text style={styles.outlineText}>{exporting === 'transactions-pdf' ? 'Preparing…' : 'Download PDF'}</Text></Pressable>
@@ -287,6 +289,8 @@ function Dropdown<T extends string>({ value, options, onChange, style }: { value
     </Modal>
   </>;
 }
+
+function Toggle({ label, value, onChange }: { label: string; value: boolean; onChange: (next: boolean) => void }) { return <View style={styles.toggleRow}><Text numberOfLines={2} style={styles.toggleLabel}>{label}</Text><Switch onValueChange={onChange} value={value} /></View>; }
 
 function inclusiveEndDate(range: ReportRange): Date {
   const date = new Date(range.toExclusive);
@@ -340,6 +344,7 @@ const styles = StyleSheet.create({
   metricValue: { color: colors.text, fontSize: 22, fontWeight: '700' }, meta: { color: colors.textMuted, fontSize: 11, marginTop: spacing.xs }, section: { color: colors.text, fontSize: 18, fontWeight: '700', marginTop: spacing.xl },
   card: { backgroundColor: colors.surface, borderColor: colors.border, borderRadius: 12, borderWidth: 1, marginTop: spacing.md, padding: spacing.md }, row: { flexDirection: 'row', justifyContent: 'space-between' },
   cardTitle: { color: colors.text, flex: 1, fontWeight: '700' }, type: { color: colors.primary, fontSize: 11, fontWeight: '700' }, danger: { color: '#B42318' }, body: { color: colors.textMuted, lineHeight: 20, marginTop: spacing.xs },
-  exportActions: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginTop: spacing.md }, exportButton: { flex: 1, marginTop: 0, minWidth: 130 }, outline: { alignItems: 'center', borderColor: colors.primary, borderRadius: 12, borderWidth: 1, marginTop: spacing.xl, padding: spacing.md }, outlineText: { color: colors.primary, fontWeight: '700' },
+  exportActions: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginTop: spacing.md }, exportButton: { flex: 1, marginTop: 0, minWidth: 130 },
+  toggleRow: { alignItems: 'center', flexDirection: 'row', justifyContent: 'space-between', marginTop: spacing.md }, toggleLabel: { color: colors.text, flex: 1, fontWeight: '700', paddingRight: spacing.md }, outline: { alignItems: 'center', borderColor: colors.primary, borderRadius: 12, borderWidth: 1, marginTop: spacing.xl, padding: spacing.md }, outlineText: { color: colors.primary, fontWeight: '700' },
   settingsCard: { backgroundColor: colors.surface, borderColor: colors.border, borderRadius: 12, borderWidth: 1, marginTop: spacing.xl, padding: spacing.md }, settingField: { flex: 1 }, settingInput: { borderColor: colors.border, borderRadius: 10, borderWidth: 1, color: colors.text, fontSize: 18, marginTop: spacing.xs, padding: spacing.sm }, saveButton: { alignItems: 'center', marginTop: spacing.md }, disabled: { opacity: 0.6 },
 });

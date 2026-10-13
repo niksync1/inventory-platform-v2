@@ -84,17 +84,19 @@ function table(headers: string[], rows: unknown[][]): string {
     : `<tr><td colspan="${headers.length}">No records</td></tr>`}</tbody></table>`;
 }
 
-export function reportToPdfHtml(report: ReportData, tenantName: string, locationName: string, dateRange: string): string {
+export function reportToPdfHtml(report: ReportData, tenantName: string, locationName: string, dateRange: string, includeExpiry: boolean): string {
   const summary = report.summary;
   const transactions = table(
     ['Date', 'Product', 'Category', 'Type', 'Qty', 'Previous', 'New', 'Performer', 'Email', 'Remarks'],
     report.transactions.map(item => [new Date(item.createdAt).toLocaleString(), item.productName, item.category, item.type, item.quantity, item.previousStock, item.newStock, item.performerName, item.performerEmail, item.remarks]),
   );
-  const expiry = table(
-    ['Product', 'Category', 'Batch', 'Expiry date', 'Days to expiry', 'Status', 'Quantity'],
-    report.expiryBatches.map(item => [item.productName, item.category, item.batchNumber, item.expiryDate, item.daysToExpiry, item.status, item.quantity]),
-  );
-  const body = `<div class="metrics"><div class="metric"><b>Current units</b><br>${summary.currentUnits}</div><div class="metric"><b>Received</b><br>${summary.stockReceived}</div><div class="metric"><b>Issued</b><br>${summary.stockIssued}</div><div class="metric"><b>Transactions in report</b><br>${report.transactions.length}</div></div><h2>Transactions</h2>${transactions}<h2>Current batch expiry</h2><p class="muted">Batch stock is current and independent of the transaction date range.</p>${expiry}<p class="muted">Generated ${escapeHtml(new Date(report.fetchedAt).toLocaleString())}</p>`;
+  const expirySection = includeExpiry
+    ? `<h2>Current batch expiry</h2><p class="muted">Batch stock is current and independent of the transaction date range.</p>${table(
+      ['Product', 'Category', 'Batch', 'Expiry date', 'Days to expiry', 'Status', 'Quantity'],
+      report.expiryBatches.map(item => [item.productName, item.category, item.batchNumber, item.expiryDate, item.daysToExpiry, item.status, item.quantity]),
+    )}`
+    : '';
+  const body = `<div class="metrics"><div class="metric"><b>Current units</b><br>${summary.currentUnits}</div><div class="metric"><b>Received</b><br>${summary.stockReceived}</div><div class="metric"><b>Issued</b><br>${summary.stockIssued}</div><div class="metric"><b>Transactions in report</b><br>${report.transactions.length}</div></div><h2>Transactions</h2>${transactions}${expirySection}<p class="muted">Generated ${escapeHtml(new Date(report.fetchedAt).toLocaleString())}</p>`;
   return htmlDocument('Inventory report', `${tenantName} · ${locationName} · ${dateRange}`, body);
 }
 

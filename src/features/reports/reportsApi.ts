@@ -1,6 +1,8 @@
 import { supabase } from '../../shared/supabase';
 import type { ReportRange } from './reportRange';
 
+export { expiryReportToCsv, reportToCsv } from './reportsCsv';
+
 export type ReportTransactionType = 'ALL' | 'RECEIPT' | 'SALE' | 'DAMAGE' | 'EXPIRED' | 'ADJUSTMENT' | 'TRANSFER_OUT' | 'TRANSFER_IN' | 'TRANSFER_RETURN';
 export interface ReportSummary { currentUnits: number; productsAtLocation: number; stockReceived: number; stockIssued: number; totalTransactions: number; }
 export interface ReportTransaction { id: string; productName: string; category: string | null; type: string; quantity: number; previousStock: number | null; newStock: number | null; remarks: string | null; performerName: string; performerEmail: string | null; createdAt: string; }
@@ -56,15 +58,6 @@ export async function loadReport(tenantId: string, locationId: string, range: Re
   };
 }
 
-export function expiryReportToCsv(report: ReportData): string {
-  const quote = (value: unknown) => `"${String(value ?? '').replaceAll('"', '""')}"`;
-  const rows = report.expiryBatches.map(item => [
-    item.productName, item.category, item.batchNumber, item.expiryDate,
-    item.daysToExpiry, item.status, item.quantity,
-  ].map(quote).join(','));
-  return ['Product,Category,Batch,Expiry date,Days to expiry,Status,Quantity', ...rows].join('\n');
-}
-
 export async function loadExpirySettings(tenantId: string): Promise<ExpirySettings> {
   const result = await supabase.from('tenant_inventory_settings')
     .select('expiry_warning_days,expiry_critical_days').eq('tenant_id', tenantId).single();
@@ -83,13 +76,4 @@ export async function updateExpirySettings(tenantId: string, settings: ExpirySet
 
 export function reportCacheKey(userId: string, tenantId: string, locationId: string, range: ReportRange, type: ReportTransactionType): string {
   return `reports:v3:${userId}:${tenantId}:${locationId}:${range.from}:${range.toExclusive}:${type}`;
-}
-
-export function reportToCsv(report: ReportData): string {
-  const quote = (value: unknown) => `"${String(value ?? '').replaceAll('"', '""')}"`;
-  const rows = report.transactions.map(item => [
-    item.createdAt, item.productName, item.category, item.type, item.quantity,
-    item.previousStock, item.newStock, item.performerName, item.performerEmail, item.remarks,
-  ].map(quote).join(','));
-  return ['Date,Product,Category,Type,Quantity,Previous stock,New stock,Performer,Email,Remarks', ...rows].join('\n');
 }
