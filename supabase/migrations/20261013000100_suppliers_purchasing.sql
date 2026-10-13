@@ -164,7 +164,6 @@ create policy "RPC executor manages supplier payments" on public.supplier_paymen
 
 grant select on public.products,public.locations to inventory_rpc_executor;
 create policy "RPC executor reads products" on public.products for select to inventory_rpc_executor using (true);
-create policy "RPC executor reads locations" on public.locations for select to inventory_rpc_executor using (true);
 grant select,insert,update,delete on public.suppliers,public.purchase_orders,public.purchase_order_items,
  public.purchase_receipts,public.purchase_receipt_items,public.supplier_payments to inventory_rpc_executor;
 
