@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Alert, Pressable, RefreshControl, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { canManageOrders, canReceiveTransfers } from '../../core/tenancy/permissions';
+import { createOperationId } from '../../core/inventory/operationId';
 import { colors, spacing } from '../../shared/theme';
 import { useTenant } from '../tenancy/TenantProvider';
 import { listProducts, type ProductInventory } from '../inventory/inventoryApi';
 import { createPurchaseOrder, listPurchaseOrderItems, listPurchaseOrders, listSuppliers, receivePurchaseOrder, recordSupplierPayment, saveSupplier, type PurchaseOrder, type PurchaseOrderItem, type Supplier } from './purchasingApi';
 
-type OrderAction = { order: PurchaseOrder; action: 'receive' | 'payment'; item?: PurchaseOrderItem } | null;
+type OrderAction = { order: PurchaseOrder; action: 'receive' | 'payment'; item?: PurchaseOrderItem; operationId: string } | null;
 type DraftLine = { product: ProductInventory; quantity: string; unitCost: string };
 
 export function PurchasingScreen({ onBack }: { onBack: () => void }) {
@@ -34,6 +35,7 @@ export function PurchasingScreen({ onBack }: { onBack: () => void }) {
   const [draftLines,setDraftLines]=useState<DraftLine[]>([]);
   const [currency,setCurrency]=useState('GHS');
   const [orderNotes,setOrderNotes]=useState('');
+  const [orderOperationId,setOrderOperationId]=useState(createOperationId());
   const [action,setAction]=useState<OrderAction>(null);
   const [receiveQuantity,setReceiveQuantity]=useState('');
   const [batchNumber,setBatchNumber]=useState('');
@@ -85,8 +87,8 @@ export function PurchasingScreen({ onBack }: { onBack: () => void }) {
     if(!draftLines.length){setError('Add at least one product line.');return;}
     if(!/^[A-Z]{3}$/.test(currency.trim().toUpperCase())){setError('Currency must be a three-letter code, e.g. GHS.');return;}
     setBusy(true);setError(null);
-    try{await createPurchaseOrder({tenantId:context.tenant.id,locationId:context.locationId,supplierId:selectedSupplier.id,currency:currency.trim().toUpperCase(),notes:orderNotes,items:draftLines.map(line=>({product:line.product,quantity:Number(line.quantity),unitCost:Number(line.unitCost)}))});
-      setDraftLines([]);setOrderNotes('');setShowOrderForm(false);await load();Alert.alert('Purchase order created','Stock has not changed. Record a goods receipt when the delivery arrives.');
+    try{await createPurchaseOrder({tenantId:context.tenant.id,locationId:context.locationId,supplierId:selectedSupplier.id,currency:currency.trim().toUpperCase(),notes:orderNotes,items:draftLines.map(line=>({product:line.product,quantity:Number(line.quantity),unitCost:Number(line.unitCost)})),operationId:orderOperationId});
+      setDraftLines([]);setOrderNotes('');setShowOrderForm(false);setOrderOperationId(createOperationId());await load();Alert.alert('Purchase order created','Stock has not changed. Record a goods receipt when the delivery arrives.');
     }catch(caught){setError(caught instanceof Error?caught.message:'Unable to create purchase order.');}finally{setBusy(false);}
   }
   async function openReceive(order:PurchaseOrder){
@@ -96,7 +98,7 @@ export function PurchasingScreen({ onBack }: { onBack: () => void }) {
       const items=await listPurchaseOrderItems(context.tenant.id,order.id);
       const item=items.find(line=>line.quantityReceived<line.quantityOrdered);
       if(!item){setError('No outstanding product quantities remain on this order.');return;}
-      setAction({order,action:'receive',item});setReceiveQuantity(String(item.quantityOrdered-item.quantityReceived));setBatchNumber('');setExpiryDate('');
+      setAction({order,action:'receive',item,operationId:createOperationId()});setReceiveQuantity(String(item.quantityOrdered-item.quantityReceived));setBatchNumber('');setExpiryDate('');
     }catch(caught){setError(caught instanceof Error?caught.message:'Unable to load order lines.');}finally{setBusy(false);}
   }
   async function submitReceipt(){
@@ -105,7 +107,7 @@ export function PurchasingScreen({ onBack }: { onBack: () => void }) {
     if(!Number.isSafeInteger(qty)||qty<=0||qty>action.item.quantityOrdered-action.item.quantityReceived){setError('Enter a valid quantity no greater than the outstanding amount.');return;}
     if(!/^\d{4}-\d{2}-\d{2}$/.test(expiryDate)||Number.isNaN(Date.parse(expiryDate))){setError('Enter the expiry date as YYYY-MM-DD.');return;}
     setBusy(true);setError(null);
-    try{await receivePurchaseOrder({orderId:action.order.id,itemId:action.item.id,quantity:qty,batchNumber,expiryDate});
+    try{await receivePurchaseOrder({orderId:action.order.id,itemId:action.item.id,quantity:qty,batchNumber,expiryDate,operationId:action.operationId});
       setAction(null);await load();Alert.alert('Stock received','The receipt and inventory transaction were recorded together.');
     }catch(caught){setError(caught instanceof Error?caught.message:'Unable to receive stock.');}finally{setBusy(false);}
   }
@@ -151,7 +153,7 @@ export function PurchasingScreen({ onBack }: { onBack: () => void }) {
         {s.paymentTerms?<Text style={styles.body}>Terms: {s.paymentTerms}</Text>:null}
       </View>)}
     </>:<>
-      {mayManage?<Pressable onPress={()=>setShowOrderForm(v=>!v)} style={styles.primary}><Text style={styles.primaryText}>{showOrderForm?'Close order form':'＋ Create purchase order'}</Text></Pressable>:null}
+      {mayManage?<Pressable onPress={()=>{setShowOrderForm(v=>{if(!v)setOrderOperationId(createOperationId());return !v;});}} style={styles.primary}><Text style={styles.primaryText}>{showOrderForm?'Close order form':'＋ Create purchase order'}</Text></Pressable>:null}
       {showOrderForm&&mayManage?<View style={styles.card}>
         <Text style={styles.cardTitle}>New purchase order</Text>
         <Text style={styles.label}>Supplier</Text>
@@ -177,7 +179,7 @@ export function PurchasingScreen({ onBack }: { onBack: () => void }) {
         <Text style={styles.meta}>{order.unitsOutstanding} unit(s) still to receive</Text>
         {order.notes?<Text style={styles.body}>{order.notes}</Text>:null}
         {mayReceive&&order.unitsOutstanding>0&&order.status!=='cancelled'?<Pressable disabled={busy} onPress={()=>void openReceive(order)} style={styles.outline}><Text style={styles.outlineText}>Receive stock</Text></Pressable>:null}
-        {mayManage&&order.outstandingAmount>0&&order.status!=='cancelled'?<Pressable onPress={()=>{setAction({order,action:'payment'});setPaymentAmount(order.outstandingAmount.toFixed(2));setPaymentMethod('mobile_money');}} style={styles.outline}><Text style={styles.outlineText}>Record supplier payment</Text></Pressable>:null}
+        {mayManage&&order.outstandingAmount>0&&order.status!=='cancelled'?<Pressable onPress={()=>{setAction({order,action:'payment',operationId:createOperationId()});setPaymentAmount(order.outstandingAmount.toFixed(2));setPaymentMethod('mobile_money');}} style={styles.outline}><Text style={styles.outlineText}>Record supplier payment</Text></Pressable>:null}
         {action?.order.id===order.id&&action.action==='receive'&&action.item?<View style={styles.panel}>
           <Text style={styles.cardTitle}>Receive: {action.item.productName}</Text>
           <Text style={styles.meta}>Outstanding: {action.item.quantityOrdered-action.item.quantityReceived} units</Text>
