@@ -13,20 +13,24 @@ export async function loadReport(tenantId: string, locationId: string, range: Re
     p_tenant_id: tenantId, p_location_id: locationId, p_from: range.from, p_to_exclusive: range.toExclusive,
   });
   if (summaryResult.error) throw summaryResult.error;
-  let query = supabase.from('inventory_transaction_report')
-    .select('id,product_name,category,transaction_type,quantity,previous_stock,new_stock,remarks,performer_name,performer_email,created_at')
-    .eq('tenant_id', tenantId).eq('location_id', locationId)
-    .gte('created_at', range.from).lt('created_at', range.toExclusive)
-    .order('created_at', { ascending: false }).limit(100);
-  if (type !== 'ALL') query = query.eq('transaction_type', type);
-  const [transactionResult, expiryResult] = await Promise.all([
-    query,
-    supabase.from('inventory_expiry_report')
-      .select('batch_id,product_name,category,batch_number,expiry_date,expiry_status,days_to_expiry,quantity')
+  const transactionRows: Array<Record<string, any>> = [];
+  const pageSize = 1000;
+  for (let offset = 0; ; offset += pageSize) {
+    let query = supabase.from('inventory_transaction_report')
+      .select('id,product_name,category,transaction_type,quantity,previous_stock,new_stock,remarks,performer_name,performer_email,created_at')
       .eq('tenant_id', tenantId).eq('location_id', locationId)
-      .order('expiry_date', { ascending: true, nullsFirst: false }).limit(500),
-  ]);
-  if (transactionResult.error) throw transactionResult.error;
+      .gte('created_at', range.from).lt('created_at', range.toExclusive)
+      .order('created_at', { ascending: false }).range(offset, offset + pageSize - 1);
+    if (type !== 'ALL') query = query.eq('transaction_type', type);
+    const page = await query;
+    if (page.error) throw page.error;
+    transactionRows.push(...(page.data ?? []));
+    if (!page.data || page.data.length < pageSize) break;
+  }
+  const expiryResult = await supabase.from('inventory_expiry_report')
+    .select('batch_id,product_name,category,batch_number,expiry_date,expiry_status,days_to_expiry,quantity')
+    .eq('tenant_id', tenantId).eq('location_id', locationId)
+    .order('expiry_date', { ascending: true, nullsFirst: false }).limit(500);
   if (expiryResult.error) throw expiryResult.error;
   const raw = (summaryResult.data?.[0] ?? {}) as Record<string, unknown>;
   return {
@@ -37,7 +41,7 @@ export async function loadReport(tenantId: string, locationId: string, range: Re
       stockIssued: Number(raw.stock_issued ?? 0),
       totalTransactions: Number(raw.total_transactions ?? 0),
     },
-    transactions: (transactionResult.data ?? []).map(row => ({
+    transactions: transactionRows.map(row => ({
       id: row.id, productName: row.product_name, category: row.category, type: row.transaction_type,
       quantity: row.quantity, previousStock: row.previous_stock, newStock: row.new_stock,
       remarks: row.remarks, performerName: row.performer_name, performerEmail: row.performer_email,
