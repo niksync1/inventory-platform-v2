@@ -43,7 +43,7 @@ export async function receivePurchaseOrder(input:{orderId:string;itemId:string;q
  const result=await supabase.rpc('receive_purchase_order',{p_purchase_order_id:input.orderId,p_notes:input.notes?.trim()||null,p_operation_id:input.operationId,p_items:[{item_id:input.itemId,quantity:input.quantity,batch_number:input.batchNumber.trim(),expiry_date:input.expiryDate}]});
  if(result.error) throw result.error;
 }
-export async function recordSupplierPayment(input:{orderId:string;amount:number;method:'cash'|'bank_transfer'|'mobile_money'|'card'|'other';reference?:string;notes?:string}):Promise<void>{
- const result=await supabase.rpc('record_supplier_payment',{p_purchase_order_id:input.orderId,p_amount:input.amount,p_payment_method:input.method,p_reference:input.reference?.trim()||null,p_notes:input.notes?.trim()||null});
+export async function recordSupplierPayment(input:{orderId:string;amount:number;method:'cash'|'bank_transfer'|'mobile_money'|'card'|'other';operationId:string;reference?:string;notes?:string}):Promise<void>{
+ const result=await supabase.rpc('record_supplier_payment',{p_purchase_order_id:input.orderId,p_amount:input.amount,p_payment_method:input.method,p_reference:input.reference?.trim()||null,p_notes:input.notes?.trim()||null,p_operation_id:input.operationId});
  if(result.error) throw result.error;
 }
