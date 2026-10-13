@@ -35,8 +35,8 @@ export async function listPurchaseOrderItems(tenantId:string,orderId:string):Pro
  if(result.error) throw result.error;
  return (result.data??[]).map(row=>({id:row.id,productId:row.product_id,productName:row.product_name,quantityOrdered:row.quantity_ordered,quantityReceived:row.quantity_received,unitCost:Number(row.unit_cost)}));
 }
-export async function createPurchaseOrder(input:{tenantId:string;locationId:string;supplierId:string;currency:string;notes?:string;product:ProductInventory;quantity:number;unitCost:number}):Promise<void>{
- const result=await supabase.rpc('create_purchase_order',{p_tenant_id:input.tenantId,p_location_id:input.locationId,p_supplier_id:input.supplierId,p_currency:input.currency,p_notes:input.notes?.trim()||null,p_items:[{product_id:input.product.id,quantity:input.quantity,unit_cost:input.unitCost}]});
+export async function createPurchaseOrder(input:{tenantId:string;locationId:string;supplierId:string;currency:string;notes?:string;items:{product:ProductInventory;quantity:number;unitCost:number}[]}):Promise<void>{
+ const result=await supabase.rpc('create_purchase_order',{p_tenant_id:input.tenantId,p_location_id:input.locationId,p_supplier_id:input.supplierId,p_currency:input.currency,p_notes:input.notes?.trim()||null,p_items:input.items.map(item=>({product_id:item.product.id,quantity:item.quantity,unit_cost:item.unitCost}))});
  if(result.error) throw result.error;
 }
 export async function receivePurchaseOrder(input:{orderId:string;itemId:string;quantity:number;batchNumber:string;expiryDate:string;notes?:string}):Promise<void>{
