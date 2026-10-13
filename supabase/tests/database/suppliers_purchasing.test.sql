@@ -46,7 +46,7 @@ select lives_ok(
 );
 select is((select count(*)::integer from public.purchase_orders where tenant_id='f2000000-0000-4000-8000-000000000001'),1,'retry creates no duplicate purchase order');
 select is((select total_amount from public.purchase_orders where operation_id='po-idempotency-test'),25::numeric,'purchase order total is calculated from line quantity and unit cost');
-select is((select quantity from public.inventory_levels where tenant_id='f2000000-0000-4000-8000-000000000001' and product_id='f4000000-0000-4000-8000-000000000001'),null::integer,'creating an order does not increase stock');
+select is((select count(*)::integer from public.inventory_levels where tenant_id='f2000000-0000-4000-8000-000000000001' and product_id='f4000000-0000-4000-8000-000000000001'),0,'creating an order does not increase stock');
 
 select lives_ok(
  $$select public.receive_purchase_order(
