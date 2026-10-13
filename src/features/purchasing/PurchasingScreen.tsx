@@ -21,6 +21,8 @@ export function PurchasingScreen({ onBack }: { onBack: () => void }) {
   const [busy,setBusy]=useState(false);
   const [error,setError]=useState<string|null>(null);
   const [showSupplierForm,setShowSupplierForm]=useState(false);
+  const [editingSupplierId,setEditingSupplierId]=useState<string|null>(null);
+  const [supplierActive,setSupplierActive]=useState(true);
   const [showOrderForm,setShowOrderForm]=useState(false);
   const [supplierType,setSupplierType]=useState<'business'|'individual'>('business');
   const [supplierName,setSupplierName]=useState('');
@@ -70,9 +72,9 @@ export function PurchasingScreen({ onBack }: { onBack: () => void }) {
   async function addSupplier(){
     if(!context||!supplierName.trim()){setError('Enter a supplier name.');return;}
     setBusy(true);setError(null);
-    try{await saveSupplier({tenantId:context.tenant.id,supplierType,name:supplierName,contactPerson,phone,email,paymentTerms:terms});
-      setSupplierName('');setContactPerson('');setPhone('');setEmail('');setTerms('');setShowSupplierForm(false);await load();
-      Alert.alert('Supplier saved','The supplier is now available for purchasing.');
+    try{await saveSupplier({tenantId:context.tenant.id,id:editingSupplierId??undefined,supplierType,name:supplierName,contactPerson,phone,email,paymentTerms:terms,isActive:supplierActive});
+      setSupplierName('');setContactPerson('');setPhone('');setEmail('');setTerms('');setEditingSupplierId(null);setSupplierActive(true);setShowSupplierForm(false);await load();
+      Alert.alert('Supplier saved',supplierActive?'Supplier details were saved.':'Supplier deactivated; existing orders are preserved.');
     }catch(caught){setError(caught instanceof Error?caught.message:'Unable to save supplier.');}finally{setBusy(false);}
   }
   function addLine(){
@@ -134,16 +136,17 @@ export function PurchasingScreen({ onBack }: { onBack: () => void }) {
     {error?<Text style={styles.error}>{error}</Text>:null}
 
     {tab==='suppliers'?<>
-      {mayManage?<Pressable onPress={()=>setShowSupplierForm(v=>!v)} style={styles.primary}><Text style={styles.primaryText}>{showSupplierForm?'Close supplier form':'＋ Add supplier'}</Text></Pressable>:null}
+      {mayManage?<Pressable onPress={()=>setShowSupplierForm(v=>!v)} style={styles.primary}><Text style={styles.primaryText}>{showSupplierForm?'Close supplier form':editingSupplierId?'Edit supplier':'＋ Add supplier'}</Text></Pressable>:null}
       {showSupplierForm&&mayManage?<View style={styles.card}>
-        <Text style={styles.cardTitle}>New supplier</Text>
+        <Text style={styles.cardTitle}>{editingSupplierId?'Edit supplier':'New supplier'}</Text>
         <View style={styles.row}><Choice label="Business" active={supplierType==='business'} onPress={()=>setSupplierType('business')}/><Choice label="Individual" active={supplierType==='individual'} onPress={()=>setSupplierType('individual')}/></View>
         <Field label="Supplier name *" value={supplierName} onChangeText={setSupplierName} placeholder="Supplier or person's name"/>
         <Field label="Contact person" value={contactPerson} onChangeText={setContactPerson} placeholder="Optional"/>
         <Field label="Phone" value={phone} onChangeText={setPhone} placeholder="Phone number" keyboardType="phone-pad"/>
         <Field label="Email" value={email} onChangeText={setEmail} placeholder="Email address" keyboardType="email-address"/>
         <Field label="Payment terms" value={terms} onChangeText={setTerms} placeholder="e.g. 30 days / cash"/>
-        <Pressable disabled={busy} onPress={()=>void addSupplier()} style={styles.primary}><Text style={styles.primaryText}>{busy?'Saving…':'Save supplier'}</Text></Pressable>
+        {editingSupplierId?<><Text style={styles.label}>Status</Text><View style={styles.row}><Choice label="Active" active={supplierActive} onPress={()=>setSupplierActive(true)}/><Choice label="Inactive" active={!supplierActive} onPress={()=>setSupplierActive(false)}/></View></>:null}
+        <Pressable disabled={busy} onPress={()=>void addSupplier()} style={styles.primary}><Text style={styles.primaryText}>{busy?'Saving…':editingSupplierId?'Save changes':'Save supplier'}</Text></Pressable>
       </View>:null}
       {!suppliers.length&&!loading?<Text style={styles.empty}>No suppliers yet. Add the businesses or individuals you purchase from.</Text>:null}
       {suppliers.map(s=><View key={s.id} style={styles.card}>
@@ -151,6 +154,7 @@ export function PurchasingScreen({ onBack }: { onBack: () => void }) {
         <Text style={styles.meta}>{s.supplierType==='business'?'Business':'Individual'}{s.contactPerson?' · '+s.contactPerson:''}</Text>
         {s.phone?<Text style={styles.body}>{s.phone}</Text>:null}{s.email?<Text style={styles.body}>{s.email}</Text>:null}
         {s.paymentTerms?<Text style={styles.body}>Terms: {s.paymentTerms}</Text>:null}
+        {mayManage?<View style={styles.row}><Pressable onPress={()=>{setEditingSupplierId(s.id);setSupplierType(s.supplierType);setSupplierName(s.name);setContactPerson(s.contactPerson??'');setPhone(s.phone??'');setEmail(s.email??'');setTerms(s.paymentTerms??'');setSupplierActive(s.isActive);setShowSupplierForm(true);setError(null);}}><Text style={styles.link}>Edit</Text></Pressable>{s.isActive?<Pressable onPress={()=>Alert.alert('Deactivate supplier?','New purchase orders will be blocked for '+s.name+'. Existing orders and payments remain available.',[{text:'Keep active',style:'cancel'},{text:'Deactivate',style:'destructive',onPress:()=>void saveSupplier({tenantId:context.tenant.id,id:s.id,supplierType:s.supplierType,name:s.name,contactPerson:s.contactPerson??'',phone:s.phone??'',email:s.email??'',paymentTerms:s.paymentTerms??'',isActive:false}).then(load).catch(caught=>setError(caught instanceof Error?caught.message:'Unable to deactivate supplier.'))}])}><Text style={styles.error}>Deactivate</Text></Pressable>:null}</View>:null}
       </View>)}
     </>:<>
       {mayManage?<Pressable onPress={()=>{setShowOrderForm(v=>{if(!v)setOrderOperationId(createOperationId());return !v;});}} style={styles.primary}><Text style={styles.primaryText}>{showOrderForm?'Close order form':'＋ Create purchase order'}</Text></Pressable>:null}
