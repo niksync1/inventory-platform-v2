@@ -116,7 +116,7 @@ export function PurchasingScreen({ onBack }: { onBack: () => void }) {
     const amount=Number(paymentAmount);
     if(!Number.isFinite(amount)||amount<=0||amount>action.order.outstandingAmount){setError('Enter a payment greater than zero and no more than the outstanding balance.');return;}
     setBusy(true);setError(null);
-    try{await recordSupplierPayment({orderId:action.order.id,amount,method:paymentMethod,reference:paymentReference,notes:paymentNotes});
+    try{await recordSupplierPayment({orderId:action.order.id,amount,method:paymentMethod,operationId:action.operationId,reference:paymentReference,notes:paymentNotes});
       setAction(null);setPaymentAmount('');setPaymentReference('');setPaymentNotes('');await load();Alert.alert('Payment recorded','The supplier balance has been updated.');
     }catch(caught){setError(caught instanceof Error?caught.message:'Unable to record payment.');}finally{setBusy(false);}
   }
