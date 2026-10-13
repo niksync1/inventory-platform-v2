@@ -1,12 +1,13 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import DateTimePicker, { type DateTimePickerEvent } from '@react-native-community/datetimepicker';
 import { useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Platform, Pressable, ScrollView, Share, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Alert, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { colors, spacing } from '../../shared/theme';
 import { useAuth } from '../auth/AuthProvider';
 import { useTenant } from '../tenancy/TenantProvider';
 import { expiryReportToCsv, loadExpirySettings, loadReport, reportCacheKey, reportToCsv, updateExpirySettings, type ReportData, type ReportTransactionType } from './reportsApi';
 import { resolveCustomReportRange, resolveReportRange, type ReportPeriod, type ReportRange } from './reportRange';
+import { exportCsvToDevice, exportPdfToDevice, expiryReportToPdfHtml, reportExportFileName, reportToPdfHtml } from './reportExport';
 
 const periods: Array<{ key: ReportPeriod; label: string }> = [{ key: 'today', label: 'Today' }, { key: '7d', label: '7 days' }, { key: '30d', label: '30 days' }];
 const types: ReportTransactionType[] = ['ALL', 'RECEIPT', 'SALE', 'DAMAGE', 'EXPIRED', 'ADJUSTMENT', 'TRANSFER_OUT', 'TRANSFER_IN', 'TRANSFER_RETURN'];
@@ -31,6 +32,7 @@ export function ReportsScreen({ onBack }: { onBack: () => void }) {
   const [criticalDays, setCriticalDays] = useState('30');
   const [settingsMessage, setSettingsMessage] = useState<string | null>(null);
   const [savingSettings, setSavingSettings] = useState(false);
+  const [exporting, setExporting] = useState<string | null>(null);
   const location = useMemo(() => locations.find(item => item.id === context?.locationId), [context, locations]);
 
   useEffect(() => {
@@ -71,6 +73,35 @@ export function ReportsScreen({ onBack }: { onBack: () => void }) {
       setSettingsMessage('Expiry thresholds saved.');
     } catch (caught) { setSettingsMessage(caught instanceof Error ? caught.message : 'Unable to save thresholds.'); }
     finally { setSavingSettings(false); }
+  }
+
+
+  async function exportReport(target: 'transactions' | 'expiry', format: 'csv' | 'pdf') {
+    if (!report || !context || exporting) return;
+    const exportKey = `${target}-${format}`;
+    setExporting(exportKey);
+    try {
+      const rangeLabel = `${appliedRange.from.slice(0, 10)}-to-${appliedRange.toExclusive.slice(0, 10)}`;
+      const prefix = target === 'transactions' ? 'inventory-report' : 'batch-expiry-report';
+      const fileName = reportExportFileName(prefix, rangeLabel, format);
+      if (format === 'csv') {
+        const csv = target === 'transactions' ? reportToCsv(report) : expiryReportToCsv(report);
+        const saved = await exportCsvToDevice(fileName, csv);
+        if (!saved) Alert.alert('Export cancelled', 'No file was saved because the folder selection was cancelled.');
+        else if (Platform.OS === 'android') Alert.alert('Export saved', `Saved ${fileName} to the selected folder.`);
+      } else {
+        const html = target === 'transactions'
+          ? reportToPdfHtml(report, context.tenant.name, location?.name ?? 'Location', formatRange(appliedRange, appliedPeriod))
+          : expiryReportToPdfHtml(report, context.tenant.name, location?.name ?? 'Location');
+        const saved = await exportPdfToDevice(fileName, html);
+        if (!saved) Alert.alert('Export cancelled', 'No file was saved because the folder selection was cancelled.');
+        else if (Platform.OS === 'android') Alert.alert('Export saved', `Saved ${fileName} to the selected folder.`);
+      }
+    } catch (caught) {
+      Alert.alert('Export failed', caught instanceof Error ? caught.message : 'Unable to export this report.');
+    } finally {
+      setExporting(null);
+    }
   }
 
   function selectPreset(nextPeriod: ReportPeriod) {
@@ -162,7 +193,10 @@ export function ReportsScreen({ onBack }: { onBack: () => void }) {
         {item.remarks ? <Text style={styles.body}>{item.remarks}</Text> : null}
       </View>)}
       {!report.transactions.length ? <Text style={styles.body}>No transactions match the selected date range.</Text> : null}
-      <Pressable style={styles.outline} onPress={() => void Share.share({ title: 'Inventory report.csv', message: reportToCsv(report) })}><Text style={styles.outlineText}>Share CSV</Text></Pressable>
+      <View style={styles.exportActions}>
+        <Pressable disabled={exporting !== null} style={[styles.outline, styles.exportButton, exporting !== null && styles.disabled]} onPress={() => void exportReport('transactions', 'csv')}><Text style={styles.outlineText}>{exporting === 'transactions-csv' ? 'Preparing…' : 'Download CSV'}</Text></Pressable>
+        <Pressable disabled={exporting !== null} style={[styles.outline, styles.exportButton, exporting !== null && styles.disabled]} onPress={() => void exportReport('transactions', 'pdf')}><Text style={styles.outlineText}>{exporting === 'transactions-pdf' ? 'Preparing…' : 'Download PDF'}</Text></Pressable>
+      </View>
       <Text style={styles.section}>Batch expiry ({report.expiryBatches.length})</Text>
       <Text style={styles.body}>Current stock batches ordered by earliest expiry. This list is independent of the transaction date range.</Text>
       {report.expiryBatches.map(batch => <View key={batch.id} style={styles.card}>
@@ -171,7 +205,10 @@ export function ReportsScreen({ onBack }: { onBack: () => void }) {
         <Text style={styles.body}>{batch.expiryDate ? `Expires ${formatExpiryDate(batch.expiryDate)}${batch.daysToExpiry !== null ? ` · ${formatDays(batch.daysToExpiry)}` : ''}` : 'Expiry not tracked (legacy stock)'}</Text>
       </View>)}
       {!report.expiryBatches.length ? <Text style={styles.body}>No stocked batches at this location.</Text> : null}
-      <Pressable style={styles.outline} onPress={() => void Share.share({ title: 'Batch expiry report.csv', message: expiryReportToCsv(report) })}><Text style={styles.outlineText}>Share expiry CSV</Text></Pressable>
+      <View style={styles.exportActions}>
+        <Pressable disabled={exporting !== null} style={[styles.outline, styles.exportButton, exporting !== null && styles.disabled]} onPress={() => void exportReport('expiry', 'csv')}><Text style={styles.outlineText}>{exporting === 'expiry-csv' ? 'Preparing…' : 'Download expiry CSV'}</Text></Pressable>
+        <Pressable disabled={exporting !== null} style={[styles.outline, styles.exportButton, exporting !== null && styles.disabled]} onPress={() => void exportReport('expiry', 'pdf')}><Text style={styles.outlineText}>{exporting === 'expiry-pdf' ? 'Preparing…' : 'Download expiry PDF'}</Text></Pressable>
+      </View>
       {context.membership.role === 'owner' || context.membership.role === 'admin' ? <View style={styles.settingsCard}>
         <Text style={styles.cardTitle}>Expiry alert thresholds</Text><Text style={styles.body}>Owners and admins can configure tenant-wide warning windows.</Text>
         <View style={styles.dateFields}><View style={styles.settingField}><Text style={styles.dateLabel}>Critical days</Text><TextInput keyboardType="number-pad" onChangeText={setCriticalDays} style={styles.settingInput} value={criticalDays} /></View><View style={styles.settingField}><Text style={styles.dateLabel}>Warning days</Text><TextInput keyboardType="number-pad" onChangeText={setWarningDays} style={styles.settingInput} value={warningDays} /></View></View>
@@ -220,6 +257,6 @@ const styles = StyleSheet.create({
   metricValue: { color: colors.text, fontSize: 22, fontWeight: '700' }, meta: { color: colors.textMuted, fontSize: 11, marginTop: spacing.xs }, section: { color: colors.text, fontSize: 18, fontWeight: '700', marginTop: spacing.xl },
   card: { backgroundColor: colors.surface, borderColor: colors.border, borderRadius: 12, borderWidth: 1, marginTop: spacing.md, padding: spacing.md }, row: { flexDirection: 'row', justifyContent: 'space-between' },
   cardTitle: { color: colors.text, flex: 1, fontWeight: '700' }, type: { color: colors.primary, fontSize: 11, fontWeight: '700' }, danger: { color: '#B42318' }, body: { color: colors.textMuted, lineHeight: 20, marginTop: spacing.xs },
-  outline: { alignItems: 'center', borderColor: colors.primary, borderRadius: 12, borderWidth: 1, marginTop: spacing.xl, padding: spacing.md }, outlineText: { color: colors.primary, fontWeight: '700' },
+  exportActions: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginTop: spacing.md }, exportButton: { flex: 1, marginTop: 0, minWidth: 130 }, outline: { alignItems: 'center', borderColor: colors.primary, borderRadius: 12, borderWidth: 1, marginTop: spacing.xl, padding: spacing.md }, outlineText: { color: colors.primary, fontWeight: '700' },
   settingsCard: { backgroundColor: colors.surface, borderColor: colors.border, borderRadius: 12, borderWidth: 1, marginTop: spacing.xl, padding: spacing.md }, settingField: { flex: 1 }, settingInput: { borderColor: colors.border, borderRadius: 10, borderWidth: 1, color: colors.text, fontSize: 18, marginTop: spacing.xs, padding: spacing.sm }, saveButton: { alignItems: 'center', marginTop: spacing.md }, disabled: { opacity: 0.6 },
 });
