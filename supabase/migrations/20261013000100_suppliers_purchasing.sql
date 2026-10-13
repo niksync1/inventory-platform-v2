@@ -141,7 +141,6 @@ using (public.has_tenant_role(tenant_id,array['owner','admin']));
 grant select,insert,update,delete on public.suppliers to authenticated;
 grant select on public.purchase_orders,public.purchase_order_items,public.purchase_receipts,
  public.purchase_receipt_items,public.supplier_payments to authenticated;
-grant select on public.purchase_order_report to authenticated;
 grant all on public.suppliers,public.purchase_orders,public.purchase_order_items,
  public.purchase_receipts,public.purchase_receipt_items,public.supplier_payments to service_role;
 create policy "Assigned members read purchase orders" on public.purchase_orders for select to authenticated
@@ -186,6 +185,8 @@ from public.purchase_orders po
 join public.suppliers s on s.tenant_id=po.tenant_id and s.id=po.supplier_id
 left join lateral (select sum(p.amount) as paid_amount from public.supplier_payments p
  where p.tenant_id=po.tenant_id and p.purchase_order_id=po.id) pay on true;
+
+grant select on public.purchase_order_report to authenticated;
 
 create function public.create_purchase_order(
  p_tenant_id uuid,p_location_id uuid,p_supplier_id uuid,p_currency text,p_notes text,p_items jsonb,p_operation_id text
