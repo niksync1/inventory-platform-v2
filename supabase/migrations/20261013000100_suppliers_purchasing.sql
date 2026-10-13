@@ -137,6 +137,13 @@ using (public.has_tenant_role(tenant_id,array['owner','admin','manager']))
 with check (public.has_tenant_role(tenant_id,array['owner','admin','manager']));
 create policy "Tenant admins deactivate suppliers" on public.suppliers for delete to authenticated
 using (public.has_tenant_role(tenant_id,array['owner','admin']));
+
+grant select,insert,update,delete on public.suppliers to authenticated;
+grant select on public.purchase_orders,public.purchase_order_items,public.purchase_receipts,
+ public.purchase_receipt_items,public.supplier_payments to authenticated;
+grant select on public.purchase_order_report to authenticated;
+grant all on public.suppliers,public.purchase_orders,public.purchase_order_items,
+ public.purchase_receipts,public.purchase_receipt_items,public.supplier_payments to service_role;
 create policy "Assigned members read purchase orders" on public.purchase_orders for select to authenticated
 using (public.can_access_location(tenant_id,location_id));
 create policy "Assigned members read purchase order items" on public.purchase_order_items for select to authenticated
