@@ -33,6 +33,8 @@ create table public.purchase_orders (
   currency text not null default 'GHS' check (currency ~ '^[A-Z]{3}$'),
   total_amount numeric(14,2) not null default 0 check (total_amount >= 0),
   notes text,
+  operation_id text not null,
+  request_payload jsonb not null,
   created_by uuid references auth.users(id) on delete set null,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
@@ -42,7 +44,8 @@ create table public.purchase_orders (
   constraint purchase_orders_supplier_fkey foreign key (tenant_id, supplier_id)
     references public.suppliers(tenant_id,id) on delete restrict,
   unique (tenant_id, id),
-  unique (tenant_id, reference)
+  unique (tenant_id, reference),
+  unique (tenant_id, operation_id)
 );
 create index purchase_orders_tenant_location_status_idx
   on public.purchase_orders(tenant_id, location_id, status, created_at desc);
@@ -73,6 +76,8 @@ create table public.purchase_receipts (
   location_id uuid not null,
   reference text not null,
   received_by uuid references auth.users(id) on delete set null,
+  operation_id text not null,
+  request_payload jsonb not null,
   notes text,
   received_at timestamptz not null default now(),
   constraint purchase_receipts_order_fkey foreign key (tenant_id,purchase_order_id)
@@ -80,7 +85,8 @@ create table public.purchase_receipts (
   constraint purchase_receipts_location_fkey foreign key (tenant_id,location_id)
     references public.locations(tenant_id,id) on delete restrict,
   unique (tenant_id,id),
-  unique (tenant_id,reference)
+  unique (tenant_id,reference),
+  unique (tenant_id,operation_id)
 );
 create table public.purchase_receipt_items (
   tenant_id uuid not null,
@@ -153,6 +159,9 @@ create policy "RPC executor manages purchase receipts" on public.purchase_receip
 create policy "RPC executor manages receipt items" on public.purchase_receipt_items for all to inventory_rpc_executor using (true) with check (true);
 create policy "RPC executor manages supplier payments" on public.supplier_payments for all to inventory_rpc_executor using (true) with check (true);
 
+grant select on public.products,public.locations to inventory_rpc_executor;
+create policy "RPC executor reads products" on public.products for select to inventory_rpc_executor using (true);
+create policy "RPC executor reads locations" on public.locations for select to inventory_rpc_executor using (true);
 grant select,insert,update,delete on public.suppliers,public.purchase_orders,public.purchase_order_items,
  public.purchase_receipts,public.purchase_receipt_items,public.supplier_payments to inventory_rpc_executor;
 
@@ -170,14 +179,21 @@ left join lateral (select sum(p.amount) as paid_amount from public.supplier_paym
  where p.tenant_id=po.tenant_id and p.purchase_order_id=po.id) pay on true;
 
 create function public.create_purchase_order(
- p_tenant_id uuid,p_location_id uuid,p_supplier_id uuid,p_currency text,p_notes text,p_items jsonb
+ p_tenant_id uuid,p_location_id uuid,p_supplier_id uuid,p_currency text,p_notes text,p_items jsonb,p_operation_id text
 ) returns uuid language plpgsql security definer set search_path=pg_catalog,public,pg_temp as $$
 declare
- v_id uuid:=gen_random_uuid(); v_reference text; v_total numeric(14,2):=0; v_item jsonb; v_product public.products%rowtype;
+ v_id uuid:=gen_random_uuid(); v_reference text; v_total numeric(14,2):=0; v_item jsonb; v_product public.products%rowtype; v_existing public.purchase_orders%rowtype;
  v_qty integer; v_cost numeric(14,2); v_context jsonb:=public.inventory_request_context();
 begin
  if not public.has_tenant_role(p_tenant_id,array['owner','admin','manager'])
    or not public.can_access_location(p_tenant_id,p_location_id) then raise exception 'Not authorized to create purchase orders for this location'; end if;
+ if p_operation_id is null or length(btrim(p_operation_id))<8 then raise exception 'Operation ID is required'; end if;
+ perform pg_advisory_xact_lock(hashtextextended(p_tenant_id::text||':'||p_operation_id,0));
+ select * into v_existing from public.purchase_orders where tenant_id=p_tenant_id and operation_id=p_operation_id;
+ if found then
+   if v_existing.request_payload is distinct from jsonb_build_object('location_id',p_location_id,'supplier_id',p_supplier_id,'currency',upper(trim(p_currency)),'notes',nullif(btrim(p_notes),''),'items',p_items) then raise exception 'Operation ID conflicts with an existing purchase order'; end if;
+   return v_existing.id;
+ end if;
  if p_currency is null or p_currency !~ '^[A-Z]{3}$' then raise exception 'A valid ISO currency code is required'; end if;
  if jsonb_typeof(p_items)<>'array' or jsonb_array_length(p_items)=0 then raise exception 'At least one product line is required'; end if;
  if not exists(select 1 from public.suppliers where tenant_id=p_tenant_id and id=p_supplier_id and is_active) then raise exception 'Active supplier not found'; end if;
@@ -190,8 +206,9 @@ begin
    if not found then raise exception 'Each purchase order item must be an active existing product'; end if;
    v_total:=v_total+(v_qty*v_cost);
  end loop;
- insert into public.purchase_orders(id,tenant_id,location_id,supplier_id,reference,currency,total_amount,notes,created_by)
- values(v_id,p_tenant_id,p_location_id,p_supplier_id,v_reference,p_currency,v_total,nullif(btrim(p_notes),''),(v_context->>'user_id')::uuid);
+ insert into public.purchase_orders(id,tenant_id,location_id,supplier_id,reference,currency,total_amount,notes,operation_id,request_payload,created_by)
+ values(v_id,p_tenant_id,p_location_id,p_supplier_id,v_reference,upper(trim(p_currency)),v_total,nullif(btrim(p_notes),''),p_operation_id,
+ jsonb_build_object('location_id',p_location_id,'supplier_id',p_supplier_id,'currency',upper(trim(p_currency)),'notes',nullif(btrim(p_notes),''),'items',p_items),(v_context->>'user_id')::uuid);
  for v_item in select value from jsonb_array_elements(p_items) loop
    select * into v_product from public.products where tenant_id=p_tenant_id and id=(v_item->>'product_id')::uuid and is_active;
    insert into public.purchase_order_items(tenant_id,purchase_order_id,product_id,product_name,quantity_ordered,unit_cost)
@@ -201,20 +218,28 @@ begin
 end; $$;
 
 create function public.receive_purchase_order(
- p_purchase_order_id uuid,p_items jsonb,p_notes text
+ p_purchase_order_id uuid,p_items jsonb,p_notes text,p_operation_id text
 ) returns uuid language plpgsql security definer set search_path=pg_catalog,public,pg_temp as $$
 declare
  v_po public.purchase_orders%rowtype; v_item jsonb; v_line public.purchase_order_items%rowtype;
- v_receipt_id uuid:=gen_random_uuid(); v_qty integer; v_batch text; v_expiry date; v_context jsonb:=public.inventory_request_context();
+ v_receipt_id uuid:=gen_random_uuid(); v_qty integer; v_batch text; v_expiry date; v_context jsonb:=public.inventory_request_context(); v_existing public.purchase_receipts%rowtype;
 begin
  select * into v_po from public.purchase_orders where id=p_purchase_order_id for update;
  if not found then raise exception 'Purchase order not found'; end if;
  if not public.can_manage_inventory_at_location(v_po.tenant_id,v_po.location_id) then raise exception 'Not authorized to receive stock at this location'; end if;
+ if p_operation_id is null or length(btrim(p_operation_id))<8 then raise exception 'Operation ID is required'; end if;
+ perform pg_advisory_xact_lock(hashtextextended(v_po.tenant_id::text||':'||p_operation_id,0));
+ select * into v_existing from public.purchase_receipts where tenant_id=v_po.tenant_id and operation_id=p_operation_id;
+ if found then
+   if v_existing.request_payload is distinct from jsonb_build_object('purchase_order_id',p_purchase_order_id,'items',p_items,'notes',nullif(btrim(p_notes),'')) then raise exception 'Operation ID conflicts with an existing goods receipt'; end if;
+   return v_existing.id;
+ end if;
  if not public.has_tenant_role(v_po.tenant_id,array['owner','admin','manager','warehouse']) then raise exception 'Not authorized to receive stock'; end if;
  if v_po.status in ('received','cancelled') then raise exception 'This purchase order is not open for receiving'; end if;
  if jsonb_typeof(p_items)<>'array' or jsonb_array_length(p_items)=0 then raise exception 'At least one received line is required'; end if;
- insert into public.purchase_receipts(tenant_id,purchase_order_id,location_id,reference,received_by,notes)
- values(v_po.tenant_id,v_po.id,v_po.location_id,'GRN-'||to_char(current_date,'YYYYMMDD')||'-'||upper(left(replace(v_receipt_id::text,'-',''),8)),(v_context->>'user_id')::uuid,nullif(btrim(p_notes),''));
+ insert into public.purchase_receipts(tenant_id,purchase_order_id,location_id,reference,received_by,operation_id,request_payload,notes)
+ values(v_po.tenant_id,v_po.id,v_po.location_id,'GRN-'||to_char(current_date,'YYYYMMDD')||'-'||upper(left(replace(v_receipt_id::text,'-',''),8)),(v_context->>'user_id')::uuid,p_operation_id,
+ jsonb_build_object('purchase_order_id',p_purchase_order_id,'items',p_items,'notes',nullif(btrim(p_notes),'')),nullif(btrim(p_notes),''));
  for v_item in select value from jsonb_array_elements(p_items) loop
    select * into v_line from public.purchase_order_items where tenant_id=v_po.tenant_id and id=(v_item->>'item_id')::uuid and purchase_order_id=v_po.id for update;
    if not found then raise exception 'Purchase order line not found'; end if;
@@ -223,7 +248,7 @@ begin
    if v_batch is null or length(v_batch) not between 1 and 120 or v_expiry is null or v_expiry<current_date then raise exception 'A valid batch number and non-expired expiry date are required'; end if;
    perform public.stock_in_batch(v_po.tenant_id,v_po.location_id,v_line.product_id,v_qty,v_batch,v_expiry,
      'Purchase order '||v_po.reference||' / receipt '||v_receipt_id,
-     left(replace(v_receipt_id::text,'-','')||replace(v_line.id::text,'-',''),32));
+     replace(v_receipt_id::text,'-','')||replace(v_line.id::text,'-',''));
    update public.purchase_order_items set quantity_received=quantity_received+v_qty,updated_at=now() where id=v_line.id;
    insert into public.purchase_receipt_items(tenant_id,receipt_id,purchase_order_item_id,quantity_received,batch_number,expiry_date)
    values(v_po.tenant_id,v_receipt_id,v_line.id,v_qty,v_batch,v_expiry);
@@ -260,13 +285,13 @@ grant execute on function public.can_access_location(uuid,uuid) to inventory_rpc
 grant execute on function public.can_manage_inventory_at_location(uuid,uuid) to inventory_rpc_executor;
 grant execute on function public.can_manage_orders(uuid) to inventory_rpc_executor;
 grant execute on function public.inventory_request_context() to inventory_rpc_executor;
-grant execute on function public.create_purchase_order(uuid,uuid,uuid,text,text,jsonb) to authenticated,service_role;
-grant execute on function public.receive_purchase_order(uuid,jsonb,text) to authenticated,service_role;
+grant execute on function public.create_purchase_order(uuid,uuid,uuid,text,text,jsonb,text) to authenticated,service_role;
+grant execute on function public.receive_purchase_order(uuid,jsonb,text,text) to authenticated,service_role;
 grant execute on function public.record_supplier_payment(uuid,numeric,text,text,text) to authenticated,service_role;
 grant execute on function public.stock_in_batch(uuid,uuid,uuid,integer,text,date,text,text) to inventory_rpc_executor;
 grant create on schema public to inventory_rpc_executor;
-alter function public.create_purchase_order(uuid,uuid,uuid,text,text,jsonb) owner to inventory_rpc_executor;
-alter function public.receive_purchase_order(uuid,jsonb,text) owner to inventory_rpc_executor;
+alter function public.create_purchase_order(uuid,uuid,uuid,text,text,jsonb,text) owner to inventory_rpc_executor;
+alter function public.receive_purchase_order(uuid,jsonb,text,text) owner to inventory_rpc_executor;
 alter function public.record_supplier_payment(uuid,numeric,text,text,text) owner to inventory_rpc_executor;
 revoke create on schema public from inventory_rpc_executor;
 
