@@ -1,8 +1,19 @@
 import { Platform } from 'react-native';
 import * as FileSystem from 'expo-file-system/legacy';
-import * as Print from 'expo-print';
-import * as Sharing from 'expo-sharing';
 import type { ReportData } from './reportsApi';
+
+// expo-print and expo-sharing resolve their native module synchronously at import time and
+// throw when it is missing (e.g. a native binary built before they were installed), which
+// crashes the app at launch. Loading them on demand keeps the app bootable and turns that
+// failure into a readable alert from the export handler instead. Same pattern as loadNotifications.
+async function loadPrint() {
+  try { return await import('expo-print'); }
+  catch { throw new Error('Printing is unavailable in this build of the app. Use Expo Go or rebuild the native app to export PDFs.'); }
+}
+async function loadSharing() {
+  try { return await import('expo-sharing'); }
+  catch { throw new Error('File sharing is unavailable in this build of the app. Use Expo Go or rebuild the native app to export files.'); }
+}
 
 type ExportKind = 'csv' | 'pdf';
 
@@ -33,6 +44,7 @@ async function saveToDevice(fileName: string, mimeType: string, content: string,
   await FileSystem.writeAsStringAsync(uri, content, {
     encoding: encoding === 'base64' ? FileSystem.EncodingType.Base64 : FileSystem.EncodingType.UTF8,
   });
+  const Sharing = await loadSharing();
   if (!(await Sharing.isAvailableAsync())) throw new Error('File sharing is not available on this device.');
   await Sharing.shareAsync(uri, { mimeType, UTI: mimeType === 'application/pdf' ? 'com.adobe.pdf' : 'public.comma-separated-values-text' });
   return true;
@@ -43,11 +55,13 @@ export async function exportCsvToDevice(fileName: string, csv: string): Promise<
 }
 
 export async function exportPdfToDevice(fileName: string, html: string): Promise<boolean> {
+  const Print = await loadPrint();
   const pdf = await Print.printToFileAsync({ html, base64: Platform.OS === 'android' });
   if (Platform.OS === 'android') {
     if (!pdf.base64) throw new Error('Could not prepare the PDF for saving.');
     return saveToDevice(fileName.endsWith('.pdf') ? fileName : `${fileName}.pdf`, 'application/pdf', pdf.base64, 'base64');
   }
+  const Sharing = await loadSharing();
   if (!(await Sharing.isAvailableAsync())) throw new Error('File sharing is not available on this device.');
   await Sharing.shareAsync(pdf.uri, { mimeType: 'application/pdf', UTI: 'com.adobe.pdf' });
   return true;

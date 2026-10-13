@@ -6,6 +6,9 @@ export interface ReportRange {
 }
 
 const MAX_CUSTOM_RANGE_DAYS = 366;
+export type RelativeDurationUnit = 'days' | 'weeks' | 'months';
+export type RelativeUnit = RelativeDurationUnit | 'custom';
+export const MAX_RELATIVE_AMOUNT: Record<RelativeDurationUnit, number> = { days: 366, weeks: 52, months: 12 };
 
 export function resolveReportRange(period: ReportPeriod, now = new Date()): ReportRange {
   const to = new Date(now);
@@ -17,6 +20,30 @@ export function resolveReportRange(period: ReportPeriod, now = new Date()): Repo
     from.setDate(from.getDate() - (period === '7d' ? 7 : 30));
   }
   return { from: from.toISOString(), toExclusive: to.toISOString() };
+}
+
+export function resolveRelativeReportRange(amount: number, unit: RelativeDurationUnit, now = new Date()): ReportRange {
+  if (!Number.isInteger(amount) || amount < 1) {
+    throw new Error('Enter a whole number of days, weeks, or months.');
+  }
+  if (amount > MAX_RELATIVE_AMOUNT[unit]) {
+    throw new Error(`Choose at most ${MAX_RELATIVE_AMOUNT[unit]} ${unit}.`);
+  }
+  const from = new Date(now);
+  if (unit === 'days') from.setDate(from.getDate() - amount);
+  else if (unit === 'weeks') from.setDate(from.getDate() - amount * 7);
+  else from.setTime(subtractMonths(from, amount).getTime());
+  return { from: from.toISOString(), toExclusive: now.toISOString() };
+}
+
+function subtractMonths(value: Date, months: number): Date {
+  const result = new Date(value);
+  const day = result.getDate();
+  result.setDate(1);
+  result.setMonth(result.getMonth() - months);
+  const lastDay = new Date(result.getFullYear(), result.getMonth() + 1, 0).getDate();
+  result.setDate(Math.min(day, lastDay));
+  return result;
 }
 
 export function resolveCustomReportRange(fromDate: Date, toDate: Date, now = new Date()): ReportRange {

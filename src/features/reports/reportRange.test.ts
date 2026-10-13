@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { resolveCustomReportRange, resolveReportRange } from './reportRange.ts';
+import { resolveCustomReportRange, resolveRelativeReportRange, resolveReportRange } from './reportRange.ts';
 
 test('rolling report ranges resolve deterministically', () => {
   const now = new Date('2026-09-20T12:00:00.000Z');
@@ -44,4 +44,34 @@ test('custom ranges allow exactly 366 inclusive calendar days', () => {
     new Date(2026, 8, 20),
     now,
   ));
+});
+
+test('relative ranges resolve days, weeks, and months from now', () => {
+  const now = new Date('2026-09-20T12:00:00.000Z');
+  assert.equal(resolveRelativeReportRange(7, 'days', now).from, resolveReportRange('7d', now).from);
+  assert.equal(resolveRelativeReportRange(7, 'days', now).toExclusive, now.toISOString());
+  assert.equal(resolveRelativeReportRange(2, 'weeks', now).from, new Date('2026-09-06T12:00:00.000Z').toISOString());
+  assert.equal(resolveRelativeReportRange(1, 'months', now).from, new Date('2026-08-20T12:00:00.000Z').toISOString());
+});
+
+test('month ranges clamp to the target month end', () => {
+  assert.equal(
+    resolveRelativeReportRange(1, 'months', new Date(2026, 2, 31, 12)).from,
+    new Date(2026, 1, 28, 12).toISOString(),
+  );
+  assert.equal(
+    resolveRelativeReportRange(1, 'months', new Date(2024, 2, 31, 12)).from,
+    new Date(2024, 1, 29, 12).toISOString(),
+  );
+});
+
+test('relative ranges reject invalid amounts and enforce caps', () => {
+  const now = new Date(2026, 8, 20, 12);
+  assert.throws(() => resolveRelativeReportRange(0, 'days', now), /whole number/);
+  assert.throws(() => resolveRelativeReportRange(1.5, 'days', now), /whole number/);
+  assert.throws(() => resolveRelativeReportRange(367, 'days', now), /at most 366 days/);
+  assert.throws(() => resolveRelativeReportRange(53, 'weeks', now), /at most 52 weeks/);
+  assert.throws(() => resolveRelativeReportRange(13, 'months', now), /at most 12 months/);
+  assert.doesNotThrow(() => resolveRelativeReportRange(366, 'days', now));
+  assert.doesNotThrow(() => resolveRelativeReportRange(12, 'months', now));
 });
