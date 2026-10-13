@@ -255,6 +255,11 @@ begin
  return v_id;
 end; $$;
 
+grant execute on function public.has_tenant_role(uuid,text[]) to inventory_rpc_executor;
+grant execute on function public.can_access_location(uuid,uuid) to inventory_rpc_executor;
+grant execute on function public.can_manage_inventory_at_location(uuid,uuid) to inventory_rpc_executor;
+grant execute on function public.can_manage_orders(uuid) to inventory_rpc_executor;
+grant execute on function public.inventory_request_context() to inventory_rpc_executor;
 grant execute on function public.create_purchase_order(uuid,uuid,uuid,text,text,jsonb) to authenticated,service_role;
 grant execute on function public.receive_purchase_order(uuid,jsonb,text) to authenticated,service_role;
 grant execute on function public.record_supplier_payment(uuid,numeric,text,text,text) to authenticated,service_role;
