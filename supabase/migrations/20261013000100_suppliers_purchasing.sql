@@ -111,10 +111,13 @@ create table public.supplier_payments (
   payment_method text not null check (payment_method in ('cash','bank_transfer','mobile_money','card','other')),
   reference text,
   notes text,
+  operation_id text not null,
+  request_payload jsonb not null,
   recorded_by uuid references auth.users(id) on delete set null,
   paid_at timestamptz not null default now(),
   foreign key (tenant_id,purchase_order_id) references public.purchase_orders(tenant_id,id) on delete restrict,
-  foreign key (tenant_id,supplier_id) references public.suppliers(tenant_id,id) on delete restrict
+  foreign key (tenant_id,supplier_id) references public.suppliers(tenant_id,id) on delete restrict,
+  unique (tenant_id,operation_id)
 );
 create index supplier_payments_order_idx on public.supplier_payments(tenant_id,purchase_order_id,paid_at desc);
 
@@ -263,20 +266,28 @@ begin
 end; $$;
 
 create function public.record_supplier_payment(
- p_purchase_order_id uuid,p_amount numeric,p_payment_method text,p_reference text,p_notes text
+ p_purchase_order_id uuid,p_amount numeric,p_payment_method text,p_reference text,p_notes text,p_operation_id text
 ) returns uuid language plpgsql security definer set search_path=pg_catalog,public,pg_temp as $$
-declare v_po public.purchase_orders%rowtype; v_paid numeric(14,2); v_id uuid:=gen_random_uuid(); v_context jsonb:=public.inventory_request_context();
+declare v_po public.purchase_orders%rowtype; v_paid numeric(14,2); v_id uuid:=gen_random_uuid(); v_context jsonb:=public.inventory_request_context(); v_existing public.supplier_payments%rowtype;
 begin
  select * into v_po from public.purchase_orders where id=p_purchase_order_id for update;
  if not found then raise exception 'Purchase order not found'; end if;
  if not public.has_tenant_role(v_po.tenant_id,array['owner','admin','manager'])
    or not public.can_access_location(v_po.tenant_id,v_po.location_id) then raise exception 'Not authorized to record supplier payments for this location'; end if;
+ if p_operation_id is null or length(btrim(p_operation_id))<8 then raise exception 'Operation ID is required'; end if;
+ perform pg_advisory_xact_lock(hashtextextended(v_po.tenant_id::text||':'||p_operation_id,0));
+ select * into v_existing from public.supplier_payments where tenant_id=v_po.tenant_id and operation_id=p_operation_id;
+ if found then
+   if v_existing.request_payload is distinct from jsonb_build_object('purchase_order_id',p_purchase_order_id,'amount',p_amount,'payment_method',p_payment_method,'reference',nullif(btrim(p_reference),''),'notes',nullif(btrim(p_notes),'')) then raise exception 'Operation ID conflicts with an existing supplier payment'; end if;
+   return v_existing.id;
+ end if;
  if p_amount is null or p_amount<=0 then raise exception 'Payment amount must be positive'; end if;
  if p_payment_method not in ('cash','bank_transfer','mobile_money','card','other') then raise exception 'Invalid payment method'; end if;
  select coalesce(sum(amount),0) into v_paid from public.supplier_payments where tenant_id=v_po.tenant_id and purchase_order_id=v_po.id;
  if p_amount>v_po.total_amount-v_paid then raise exception 'Payment exceeds the outstanding purchase balance'; end if;
- insert into public.supplier_payments(id,tenant_id,purchase_order_id,supplier_id,amount,currency,payment_method,reference,notes,recorded_by)
- values(v_id,v_po.tenant_id,v_po.id,v_po.supplier_id,p_amount,v_po.currency,p_payment_method,nullif(btrim(p_reference),''),nullif(btrim(p_notes),''),(v_context->>'user_id')::uuid);
+ insert into public.supplier_payments(id,tenant_id,purchase_order_id,supplier_id,amount,currency,payment_method,reference,notes,operation_id,request_payload,recorded_by)
+ values(v_id,v_po.tenant_id,v_po.id,v_po.supplier_id,p_amount,v_po.currency,p_payment_method,nullif(btrim(p_reference),''),nullif(btrim(p_notes),''),p_operation_id,
+ jsonb_build_object('purchase_order_id',p_purchase_order_id,'amount',p_amount,'payment_method',p_payment_method,'reference',nullif(btrim(p_reference),''),'notes',nullif(btrim(p_notes),'')),(v_context->>'user_id')::uuid);
  return v_id;
 end; $$;
 
@@ -287,12 +298,12 @@ grant execute on function public.can_manage_orders(uuid) to inventory_rpc_execut
 grant execute on function public.inventory_request_context() to inventory_rpc_executor;
 grant execute on function public.create_purchase_order(uuid,uuid,uuid,text,text,jsonb,text) to authenticated,service_role;
 grant execute on function public.receive_purchase_order(uuid,jsonb,text,text) to authenticated,service_role;
-grant execute on function public.record_supplier_payment(uuid,numeric,text,text,text) to authenticated,service_role;
+grant execute on function public.record_supplier_payment(uuid,numeric,text,text,text,text) to authenticated,service_role;
 grant execute on function public.stock_in_batch(uuid,uuid,uuid,integer,text,date,text,text) to inventory_rpc_executor;
 grant create on schema public to inventory_rpc_executor;
 alter function public.create_purchase_order(uuid,uuid,uuid,text,text,jsonb,text) owner to inventory_rpc_executor;
 alter function public.receive_purchase_order(uuid,jsonb,text,text) owner to inventory_rpc_executor;
-alter function public.record_supplier_payment(uuid,numeric,text,text,text) owner to inventory_rpc_executor;
+alter function public.record_supplier_payment(uuid,numeric,text,text,text,text) owner to inventory_rpc_executor;
 revoke create on schema public from inventory_rpc_executor;
 
 comment on table public.suppliers is 'Tenant-owned suppliers, including business and individual providers.';
