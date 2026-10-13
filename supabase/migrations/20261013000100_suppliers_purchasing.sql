@@ -205,7 +205,8 @@ begin
    return v_existing.id;
  end if;
  if p_currency is null or p_currency !~ '^[A-Z]{3}$' then raise exception 'A valid ISO currency code is required'; end if;
- if jsonb_typeof(p_items)<>'array' or jsonb_array_length(p_items)=0 then raise exception 'At least one product line is required'; end if;
+ if p_items is null or jsonb_typeof(p_items)<>'array' then raise exception 'Purchase order items must be an array'; end if;
+ if jsonb_array_length(p_items)=0 then raise exception 'At least one product line is required'; end if;
  if not exists(select 1 from public.suppliers where tenant_id=p_tenant_id and id=p_supplier_id and is_active) then raise exception 'Active supplier not found'; end if;
  v_reference:='PO-'||to_char(current_date,'YYYYMMDD')||'-'||upper(left(replace(v_id::text,'-',''),8));
  for v_item in select value from jsonb_array_elements(p_items) loop
@@ -246,7 +247,8 @@ begin
  end if;
  if not public.has_tenant_role(v_po.tenant_id,array['owner','admin','manager','warehouse']) then raise exception 'Not authorized to receive stock'; end if;
  if v_po.status in ('received','cancelled') then raise exception 'This purchase order is not open for receiving'; end if;
- if jsonb_typeof(p_items)<>'array' or jsonb_array_length(p_items)=0 then raise exception 'At least one received line is required'; end if;
+ if p_items is null or jsonb_typeof(p_items)<>'array' then raise exception 'Received items must be an array'; end if;
+ if jsonb_array_length(p_items)=0 then raise exception 'At least one received line is required'; end if;
  insert into public.purchase_receipts(tenant_id,purchase_order_id,location_id,reference,received_by,operation_id,request_payload,notes)
  values(v_po.tenant_id,v_po.id,v_po.location_id,'GRN-'||to_char(current_date,'YYYYMMDD')||'-'||upper(left(replace(v_receipt_id::text,'-',''),8)),(v_context->>'user_id')::uuid,p_operation_id,
  jsonb_build_object('purchase_order_id',p_purchase_order_id,'items',p_items,'notes',nullif(btrim(p_notes),'')),nullif(btrim(p_notes),''));
@@ -289,7 +291,7 @@ begin
    return v_existing.id;
  end if;
  if p_amount is null or p_amount<=0 then raise exception 'Payment amount must be positive'; end if;
- if p_payment_method not in ('cash','bank_transfer','mobile_money','card','other') then raise exception 'Invalid payment method'; end if;
+ if p_payment_method is null or p_payment_method not in ('cash','bank_transfer','mobile_money','card','other') then raise exception 'Invalid payment method'; end if;
  select coalesce(sum(amount),0) into v_paid from public.supplier_payments where tenant_id=v_po.tenant_id and purchase_order_id=v_po.id;
  if p_amount>v_po.total_amount-v_paid then raise exception 'Payment exceeds the outstanding purchase balance'; end if;
  insert into public.supplier_payments(id,tenant_id,purchase_order_id,supplier_id,amount,currency,payment_method,reference,notes,operation_id,request_payload,recorded_by)
