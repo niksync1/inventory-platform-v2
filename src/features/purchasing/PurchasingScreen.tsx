@@ -178,8 +178,8 @@ export function PurchasingScreen({ onBack }: { onBack: () => void }) {
       {orders.map(order=><View key={order.id} style={styles.card}>
         <View style={styles.row}><Text style={styles.cardTitle}>{order.reference}</Text><Text style={styles.status}>{order.status.replaceAll('_',' ').toUpperCase()}</Text></View>
         <Text style={styles.product}>{order.supplierName}</Text>
-        <Text style={styles.body}>Total: {order.currency} {order.totalAmount.toFixed(2)} · Paid: {order.paidAmount.toFixed(2)}</Text>
-        <Text style={[styles.body,order.outstandingAmount>0&&styles.balance]}>Outstanding: {order.currency} {order.outstandingAmount.toFixed(2)}</Text>
+        {mayManage?<><Text style={styles.body}>Total: {order.currency} {order.totalAmount.toFixed(2)} · Paid: {order.paidAmount.toFixed(2)}</Text>
+        <Text style={[styles.body,order.outstandingAmount>0&&styles.balance]}>Outstanding: {order.currency} {order.outstandingAmount.toFixed(2)}</Text></>:<Text style={styles.body}>Order total: {order.currency} {order.totalAmount.toFixed(2)}</Text>}
         <Text style={styles.meta}>{order.unitsOutstanding} unit(s) still to receive</Text>
         {order.notes?<Text style={styles.body}>{order.notes}</Text>:null}
         {mayReceive&&order.unitsOutstanding>0&&order.status!=='cancelled'?<Pressable disabled={busy} onPress={()=>void openReceive(order)} style={styles.outline}><Text style={styles.outlineText}>Receive stock</Text></Pressable>:null}
