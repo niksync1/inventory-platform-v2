@@ -1,0 +1,104 @@
+begin;
+create extension if not exists pgtap with schema extensions;
+set search_path = public, extensions;
+select no_plan();
+
+select has_table('public','suppliers','supplier directory exists');
+select has_table('public','purchase_orders','purchase orders exist');
+select has_table('public','purchase_order_items','purchase orders support multiple lines');
+select has_table('public','purchase_receipts','goods receipts are recorded');
+select has_table('public','purchase_receipt_items','goods receipt lines are recorded');
+select has_table('public','supplier_payments','supplier payments are tracked');
+select has_view('public','purchase_order_report','purchase order balance report exists');
+select has_function('public','create_purchase_order',array['uuid','uuid','uuid','text','text','jsonb','text'],'purchase order RPC exists');
+select has_function('public','receive_purchase_order',array['uuid','jsonb','text','text'],'goods receipt RPC exists');
+select has_function('public','record_supplier_payment',array['uuid','numeric','text','text','text','text'],'supplier payment RPC exists');
+
+insert into auth.users(id,email) values ('f1000000-0000-4000-8000-000000000001','purchasing-owner@test.invalid');
+insert into public.tenants(id,name,slug) values ('f2000000-0000-4000-8000-000000000001','Purchasing Test','purchasing-test');
+insert into public.tenant_memberships(tenant_id,user_id,role,status)
+values ('f2000000-0000-4000-8000-000000000001','f1000000-0000-4000-8000-000000000001','owner','active');
+insert into public.locations(id,tenant_id,name,code)
+values ('f3000000-0000-4000-8000-000000000001','f2000000-0000-4000-8000-000000000001','Main','MAIN');
+insert into public.products(id,tenant_id,name,slug,price)
+values ('f4000000-0000-4000-8000-000000000001','f2000000-0000-4000-8000-000000000001','Test Product','purchasing-test-product',5);
+insert into public.suppliers(id,tenant_id,supplier_type,name)
+values ('f5000000-0000-4000-8000-000000000001','f2000000-0000-4000-8000-000000000001','business','Test Supplier');
+
+set local role authenticated;
+select set_config('request.jwt.claims','{"sub":"f1000000-0000-4000-8000-000000000001","role":"authenticated"}',true);
+
+select lives_ok(
+ $$select public.create_purchase_order(
+ 'f2000000-0000-4000-8000-000000000001','f3000000-0000-4000-8000-000000000001',
+ 'f5000000-0000-4000-8000-000000000001','GHS',null,
+ '[{"product_id":"f4000000-0000-4000-8000-000000000001","quantity":10,"unit_cost":2.5}]'::jsonb,
+ 'po-idempotency-test')$$,
+ 'owner can create a purchase order using existing products'
+);
+select lives_ok(
+ $$select public.create_purchase_order(
+ 'f2000000-0000-4000-8000-000000000001','f3000000-0000-4000-8000-000000000001',
+ 'f5000000-0000-4000-8000-000000000001','GHS',null,
+ '[{"product_id":"f4000000-0000-4000-8000-000000000001","quantity":10,"unit_cost":2.5}]'::jsonb,
+ 'po-idempotency-test')$$,
+ 'purchase order retries are idempotent'
+);
+select is((select count(*)::integer from public.purchase_orders where tenant_id='f2000000-0000-4000-8000-000000000001'),1,'retry creates no duplicate purchase order');
+select is((select total_amount from public.purchase_orders where operation_id='po-idempotency-test'),25::numeric,'purchase order total is calculated from line quantity and unit cost');
+select is((select quantity from public.inventory_levels where tenant_id='f2000000-0000-4000-8000-000000000001' and product_id='f4000000-0000-4000-8000-000000000001'),null::integer,'creating an order does not increase stock');
+
+select lives_ok(
+ $$select public.receive_purchase_order(
+  (select id from public.purchase_orders where operation_id='po-idempotency-test'),
+  jsonb_build_array(jsonb_build_object(
+    'item_id',(select id from public.purchase_order_items where purchase_order_id=(select id from public.purchase_orders where operation_id='po-idempotency-test')),
+    'quantity',4,'batch_number','LOT-PO-1','expiry_date',(current_date+60)::text
+  )),null,'receipt-idempotency-test')$$,
+ 'owner can receive a partial delivery into a tracked batch'
+);
+select lives_ok(
+ $$select public.receive_purchase_order(
+  (select id from public.purchase_orders where operation_id='po-idempotency-test'),
+  jsonb_build_array(jsonb_build_object(
+    'item_id',(select id from public.purchase_order_items where purchase_order_id=(select id from public.purchase_orders where operation_id='po-idempotency-test')),
+    'quantity',4,'batch_number','LOT-PO-1','expiry_date',(current_date+60)::text
+  )),null,'receipt-idempotency-test')$$,
+ 'goods receipt retries are idempotent'
+);
+select is((select quantity from public.inventory_levels where tenant_id='f2000000-0000-4000-8000-000000000001' and product_id='f4000000-0000-4000-8000-000000000001'),4,'receipt retry does not double stock');
+select is((select status from public.purchase_orders where operation_id='po-idempotency-test'),'partially_received','partial delivery keeps the order open');
+
+select lives_ok(
+ $$select public.receive_purchase_order(
+  (select id from public.purchase_orders where operation_id='po-idempotency-test'),
+  jsonb_build_array(jsonb_build_object(
+    'item_id',(select id from public.purchase_order_items where purchase_order_id=(select id from public.purchase_orders where operation_id='po-idempotency-test')),
+    'quantity',6,'batch_number','LOT-PO-2','expiry_date',(current_date+90)::text
+  )),null,'receipt-second-test')$$,
+ 'remaining order quantity can be received later'
+);
+select is((select quantity from public.inventory_levels where tenant_id='f2000000-0000-4000-8000-000000000001' and product_id='f4000000-0000-4000-8000-000000000001'),10,'all received quantities update stock');
+select is((select status from public.purchase_orders where operation_id='po-idempotency-test'),'received','fully received order is marked received');
+
+select lives_ok(
+ $$select public.record_supplier_payment(
+  (select id from public.purchase_orders where operation_id='po-idempotency-test'),5,'mobile_money','PAY-1',null,'payment-idempotency-test')$$,
+ 'purchasing manager can record a partial supplier payment'
+);
+select lives_ok(
+ $$select public.record_supplier_payment(
+  (select id from public.purchase_orders where operation_id='po-idempotency-test'),5,'mobile_money','PAY-1',null,'payment-idempotency-test')$$,
+ 'payment retries are idempotent'
+);
+select is((select count(*)::integer from public.supplier_payments where operation_id='payment-idempotency-test'),1,'payment retry does not create a duplicate payment');
+select is((select outstanding_amount from public.purchase_order_report where reference=(select reference from public.purchase_orders where operation_id='po-idempotency-test')),20::numeric,'outstanding balance reflects partial payment');
+select throws_ok(
+ $$select public.record_supplier_payment(
+  (select id from public.purchase_orders where operation_id='po-idempotency-test'),21,'cash',null,null,'overpayment-test')$$,
+ 'P0001','Payment exceeds the outstanding purchase balance','overpayment is rejected'
+);
+
+reset role;
+select * from finish();
+rollback;
