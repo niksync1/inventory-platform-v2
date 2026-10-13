@@ -15,12 +15,13 @@ interface HomeScreenProps {
   onReports: () => void;
   onAlerts: () => void;
   onTransfers: () => void;
+  onPurchasing: () => void;
   onOfflineSync: () => void;
   onNotifications: () => void;
   onSignOut: () => Promise<void>;
 }
 
-export function HomeScreen({ onChangeContext, onInventory, onReports, onAlerts, onTransfers, onOfflineSync, onNotifications, onSignOut }: HomeScreenProps) {
+export function HomeScreen({ onChangeContext, onInventory, onReports, onAlerts, onTransfers, onPurchasing, onOfflineSync, onNotifications, onSignOut }: HomeScreenProps) {
   const { session } = useAuth();
   const { context, locations } = useTenant();
   const { pendingCount, failedCount, syncing } = useOfflineSync();
@@ -100,6 +101,7 @@ export function HomeScreen({ onChangeContext, onInventory, onReports, onAlerts, 
       <MenuAction icon="bar-chart-outline" title="Reports" onPress={onReports} />
       <MenuAction icon="notifications-outline" title={activeAlerts ? 'Alerts (' + activeAlerts + ')' : 'Alerts'} onPress={onAlerts} />
       <MenuAction icon="swap-horizontal-outline" title="Transfers" onPress={onTransfers} />
+      <MenuAction icon="cart-outline" title="Suppliers & purchasing" onPress={onPurchasing} />
       <MenuAction icon="cloud-offline-outline" title={pendingCount || failedCount ? 'Offline sync (' + (pendingCount + failedCount) + ')' : 'Offline sync'} onPress={onOfflineSync} />
       <MenuAction icon="settings-outline" title="Notifications" onPress={onNotifications} />
       {isOwner && dashboardUrl ? <MenuAction icon="shield-checkmark-outline" title="Admin dashboard" onPress={() => void openAdminDashboard()} /> : null}
