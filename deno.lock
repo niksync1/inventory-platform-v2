@@ -1,0 +1,33 @@
+{
+  "version": "5",
+  "redirects": {
+    "https://esm.sh/@supabase/supabase-js@2": "https://esm.sh/@supabase/supabase-js@2.117.3"
+  },
+  "remote": {
+    "https://esm.sh/@supabase/supabase-js@2.117.3": "614f9e550b12b4be7054f947cc4949ebcc0eceeb8e83f7e226cc875356e9b126"
+  },
+  "workspace": {
+    "packageJson": {
+      "dependencies": [
+        "npm:@expo/vector-icons@^15.1.1",
+        "npm:@react-native-async-storage/async-storage@^2.2.0",
+        "npm:@react-native-community/datetimepicker@9.1.0",
+        "npm:@react-native-community/netinfo@12.0.1",
+        "npm:@supabase/supabase-js@^2.57.4",
+        "npm:@types/react@~19.2.2",
+        "npm:expo-camera@~57.0.4",
+        "npm:expo-constants@~57.0.17",
+        "npm:expo-dev-client@~57.0.19",
+        "npm:expo-device@~57.0.1",
+        "npm:expo-notifications@~57.0.17",
+        "npm:expo-status-bar@~57.0.1",
+        "npm:expo@~57.0.21",
+        "npm:react-native-url-polyfill@3",
+        "npm:react-native@0.86.3",
+        "npm:react@19.2.3",
+        "npm:supabase@^2.117.0",
+        "npm:typescript@~6.0.3"
+      ]
+    }
+  }
+}
