@@ -96,6 +96,18 @@ select throws_ok(
   )),null,'viewer-receipt-test')$,
  'P0001','Not authorized to receive stock at this location','viewer role remains read-only and cannot receive stock'
 );
+select throws_ok(
+ $select public.update_purchase_order(
+  current_setting('test.purchase_order_id')::uuid,
+  'f5000000-0000-4000-8000-000000000001','f3000000-0000-4000-8000-000000000001','GHS',null,
+  '[{"product_id":"f4000000-0000-4000-8000-000000000001","quantity":10,"unit_cost":2.5}]'::jsonb
+ )$,
+ 'P0001','Not authorized to edit this purchase order','viewer cannot edit purchase orders'
+);
+select throws_ok(
+ $select public.delete_purchase_order(current_setting('test.purchase_order_id')::uuid)$,
+ 'P0001','Not authorized to delete this purchase order','viewer cannot delete purchase orders'
+);
 select set_config('request.jwt.claims','{"sub":"f1000000-0000-4000-8000-000000000001","role":"authenticated"}',true);
 
 select lives_ok(
@@ -118,6 +130,18 @@ select lives_ok(
 );
 select is((select quantity from public.inventory_levels where tenant_id='f2000000-0000-4000-8000-000000000001' and product_id='f4000000-0000-4000-8000-000000000001'),4,'receipt retry does not double stock');
 select is((select status from public.purchase_orders where operation_id='po-idempotency-test'),'partially_received','partial delivery keeps the order open');
+select throws_ok(
+ $select public.update_purchase_order(
+  (select id from public.purchase_orders where operation_id='po-idempotency-test'),
+  'f5000000-0000-4000-8000-000000000001','f3000000-0000-4000-8000-000000000001','GHS',null,
+  '[{"product_id":"f4000000-0000-4000-8000-000000000001","quantity":10,"unit_cost":2.5}]'::jsonb
+ )$,
+ 'P0001','Only orders with no receipts or payments can be edited','orders with receipt history cannot be edited'
+);
+select throws_ok(
+ $select public.delete_purchase_order((select id from public.purchase_orders where operation_id='po-idempotency-test'))$,
+ 'P0001','Only orders with no receipts or payments can be deleted','orders with receipt history cannot be deleted'
+);
 
 select lives_ok(
  $$select public.receive_purchase_order(
