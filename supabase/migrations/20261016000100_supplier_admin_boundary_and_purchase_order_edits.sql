@@ -140,7 +140,12 @@ grant execute on function public.has_tenant_role(uuid,text[]) to inventory_rpc_e
 grant execute on function public.can_access_location(uuid,uuid) to inventory_rpc_executor;
 grant execute on function public.update_purchase_order(uuid,uuid,uuid,text,text,jsonb) to authenticated, service_role;
 grant execute on function public.delete_purchase_order(uuid) to authenticated, service_role;
+
+-- Match the established executor-owner transfer pattern: grant schema CREATE
+-- only for the ownership change, then immediately revoke it again.
+grant create on schema public to inventory_rpc_executor;
 alter function public.update_purchase_order(uuid,uuid,uuid,text,text,jsonb) owner to inventory_rpc_executor;
 alter function public.delete_purchase_order(uuid) owner to inventory_rpc_executor;
+revoke create on schema public from inventory_rpc_executor;
 
 commit;
