@@ -12,6 +12,7 @@ import { ProductDetailScreen } from './src/features/inventory/ProductDetailScree
 import { StockMovementScreen } from './src/features/inventory/StockMovementScreen';
 import { CreateTransferScreen } from './src/features/transfers/CreateTransferScreen';
 import { TransfersScreen } from './src/features/transfers/TransfersScreen';
+import { PurchasingScreen } from './src/features/purchasing/PurchasingScreen';
 import { OfflineSyncProvider } from './src/features/offline/OfflineSyncProvider';
 import { OfflineSyncScreen } from './src/features/offline/OfflineSyncScreen';
 import { NotificationPreferencesScreen } from './src/features/notifications/NotificationPreferencesScreen';
@@ -20,7 +21,7 @@ import { TenantProvider, useTenant } from './src/features/tenancy/TenantProvider
 import { TenantSelectionScreen } from './src/features/tenancy/TenantSelectionScreen';
 import { colors } from './src/shared/theme';
 
-type Route = { name: 'home' } | { name: 'reports' } | { name: 'alerts' } | { name: 'transfers' } | { name: 'offline-sync' } | { name: 'notifications' } | { name: 'inventory' } | { name: 'scanner' } | { name: 'product'; productId: string } | { name: 'movement'; productId: string; type: 'in' | 'out' } | { name: 'transfer-create'; productId: string; batchId: string };
+type Route = { name: 'home' } | { name: 'purchasing' } | { name: 'reports' } | { name: 'alerts' } | { name: 'transfers' } | { name: 'offline-sync' } | { name: 'notifications' } | { name: 'inventory' } | { name: 'scanner' } | { name: 'product'; productId: string } | { name: 'movement'; productId: string; type: 'in' | 'out' } | { name: 'transfer-create'; productId: string; batchId: string };
 
 export default function App() {
   return <AuthProvider><SafeAreaView style={styles.screen}><StatusBar style="dark" /><AppContent /></SafeAreaView></AuthProvider>;
@@ -54,6 +55,7 @@ function AuthenticatedApp() {
     }} />;
   }
 
+  if (route.name === 'purchasing') return <PurchasingScreen onBack={() => setRoute({ name: 'home' })} />;
   if (route.name === 'reports') return <ReportsScreen onBack={() => setRoute({ name: 'home' })} />;
   if (route.name === 'alerts') return <AlertsScreen onBack={() => setRoute({ name: 'home' })} />;
   if (route.name === 'transfers') return <TransfersScreen onBack={() => setRoute({ name: 'home' })} />;
@@ -92,6 +94,7 @@ function AuthenticatedApp() {
     onReports={() => setRoute({ name: 'reports' })}
     onAlerts={() => setRoute({ name: 'alerts' })}
     onTransfers={() => setRoute({ name: 'transfers' })}
+    onPurchasing={() => setRoute({ name: 'purchasing' })}
     onOfflineSync={() => setRoute({ name: 'offline-sync' })}
     onNotifications={() => setRoute({ name: 'notifications' })}
     onSignOut={async () => {
