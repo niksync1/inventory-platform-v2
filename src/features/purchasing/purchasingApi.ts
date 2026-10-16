@@ -21,11 +21,16 @@ export async function listSuppliers(tenantId: string): Promise<Supplier[]> {
   if(result.error) throw result.error;
   return (result.data??[]).map(row=>({id:row.id,supplierType:row.supplier_type,name:row.name,contactPerson:row.contact_person,phone:row.phone,email:row.email,paymentTerms:row.payment_terms,isActive:row.is_active}));
 }
-export async function saveSupplier(input:{tenantId:string;id?:string;supplierType:'business'|'individual';name:string;contactPerson?:string;phone?:string;email?:string;paymentTerms?:string;isActive?:boolean}):Promise<void>{
- const values={supplier_type:input.supplierType,name:input.name.trim(),contact_person:input.contactPerson?.trim()||null,phone:input.phone?.trim()||null,email:input.email?.trim()||null,payment_terms:input.paymentTerms?.trim()||null,is_active:input.isActive??true,updated_at:new Date().toISOString()};
- const result=input.id
-  ? await supabase.from('suppliers').update(values).eq('tenant_id',input.tenantId).eq('id',input.id)
-  : await supabase.from('suppliers').insert({...values,tenant_id:input.tenantId});
+export async function updatePurchaseOrder(input:{orderId:string;supplierId:string;locationId:string;currency:string;notes?:string;items:{product:ProductInventory;quantity:number;unitCost:number}[]}):Promise<void>{
+ const result=await supabase.rpc('update_purchase_order',{
+  p_purchase_order_id:input.orderId,p_supplier_id:input.supplierId,p_location_id:input.locationId,
+  p_currency:input.currency.trim().toUpperCase(),p_notes:input.notes?.trim()||null,
+  p_items:input.items.map(item=>({product_id:item.product.id,quantity:item.quantity,unit_cost:item.unitCost}))
+ });
+ if(result.error) throw result.error;
+}
+export async function deletePurchaseOrder(orderId:string):Promise<void>{
+ const result=await supabase.rpc('delete_purchase_order',{p_purchase_order_id:orderId});
  if(result.error) throw result.error;
 }
 export async function listPurchaseOrders(tenantId:string,locationId:string):Promise<PurchaseOrder[]>{
