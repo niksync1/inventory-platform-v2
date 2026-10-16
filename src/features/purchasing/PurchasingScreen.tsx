@@ -187,7 +187,7 @@ export function PurchasingScreen({ onBack }: { onBack: () => void }) {
         <Text style={[styles.body,order.outstandingAmount>0&&styles.balance]}>Outstanding: {order.currency} {order.outstandingAmount.toFixed(2)}</Text></>:<Text style={styles.body}>Order total: {order.currency} {order.totalAmount.toFixed(2)}</Text>}
         <Text style={styles.meta}>{order.unitsOutstanding} unit(s) still to receive</Text>
         {order.notes?<Text style={styles.body}>{order.notes}</Text>:null}
-        {mayManage&&order.status==='ordered'?<View style={styles.row}>
+        {mayManage&&order.status==='ordered'&&order.paidAmount===0?<View style={styles.row}>
           <Pressable disabled={busy} onPress={()=>void openEditOrder(order)} style={styles.outline}><Text style={styles.outlineText}>Edit order</Text></Pressable>
           <Pressable disabled={busy} onPress={()=>confirmDeleteOrder(order)} style={styles.outline}><Text style={styles.error}>Delete order</Text></Pressable>
         </View>:null}
