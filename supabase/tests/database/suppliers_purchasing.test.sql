@@ -18,6 +18,9 @@ insert into auth.users(id,email) values ('f1000000-0000-4000-8000-000000000001',
 insert into public.tenants(id,name,slug) values ('f2000000-0000-4000-8000-000000000001','Purchasing Test','purchasing-test');
 insert into public.tenant_memberships(tenant_id,user_id,role,status)
 values ('f2000000-0000-4000-8000-000000000001','f1000000-0000-4000-8000-000000000001','owner','active');
+insert into auth.users(id,email) values ('f1000000-0000-4000-8000-000000000002','purchasing-viewer@test.invalid');
+insert into public.tenant_memberships(tenant_id,user_id,role,status)
+values ('f2000000-0000-4000-8000-000000000001','f1000000-0000-4000-8000-000000000002','viewer','active');
 insert into public.locations(id,tenant_id,name,code)
 values ('f3000000-0000-4000-8000-000000000001','f2000000-0000-4000-8000-000000000001','Main','MAIN');
 insert into public.products(id,tenant_id,name,slug,price)
@@ -81,6 +84,17 @@ select lives_ok(
 );
 select is((select count(*)::integer from public.purchase_orders where operation_id='po-delete-test'),0,'deleted purchase order is removed');
 select is((select count(*)::integer from public.inventory_levels where tenant_id='f2000000-0000-4000-8000-000000000001' and product_id='f4000000-0000-4000-8000-000000000001'),0,'creating an order does not increase stock');
+select set_config('request.jwt.claims','{"sub":"f1000000-0000-4000-8000-000000000002","role":"authenticated"}',true);
+select throws_ok(
+ $select public.receive_purchase_order(
+  (select id from public.purchase_orders where operation_id='po-idempotency-test'),
+  jsonb_build_array(jsonb_build_object(
+    'item_id',(select id from public.purchase_order_items where purchase_order_id=(select id from public.purchase_orders where operation_id='po-idempotency-test')),
+    'quantity',1,'batch_number','LOT-VIEWER','expiry_date',(current_date+60)::text
+  )),null,'viewer-receipt-test')$,
+ 'P0001','Not authorized to receive stock at this location','viewer role remains read-only and cannot receive stock'
+);
+select set_config('request.jwt.claims','{"sub":"f1000000-0000-4000-8000-000000000001","role":"authenticated"}',true);
 
 select lives_ok(
  $$select public.receive_purchase_order(
