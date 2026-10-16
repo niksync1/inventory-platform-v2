@@ -7,7 +7,7 @@ set local search_path = pg_catalog, public, pg_temp;
 drop policy if exists "Tenant purchasing managers create suppliers" on public.suppliers;
 drop policy if exists "Tenant purchasing managers update suppliers" on public.suppliers;
 drop policy if exists "Tenant admins deactivate suppliers" on public.suppliers;
-revoke insert, update, delete on public.suppliers from authenticated;
+revoke insert, update, delete on public.suppliers from anon, authenticated;
 grant select on public.suppliers to authenticated;
 
 create function public.update_purchase_order(
