@@ -50,48 +50,48 @@ select lives_ok(
 select is((select count(*)::integer from public.purchase_orders where tenant_id='f2000000-0000-4000-8000-000000000001'),1,'retry creates no duplicate purchase order');
 select is((select total_amount from public.purchase_orders where operation_id='po-idempotency-test'),25::numeric,'purchase order total is calculated from line quantity and unit cost');
 select throws_ok(
- $insert into public.suppliers(tenant_id,supplier_type,name) values ('f2000000-0000-4000-8000-000000000001','business','Mobile Write Must Fail')$,
+ $$insert into public.suppliers(tenant_id,supplier_type,name) values ('f2000000-0000-4000-8000-000000000001','business','Mobile Write Must Fail')$$,
  '42501','permission denied for table suppliers','mobile clients cannot create supplier accounts directly'
 );
 select throws_ok(
- $update public.suppliers set name='Mobile Update Must Fail' where id='f5000000-0000-4000-8000-000000000001'$,
+ $$update public.suppliers set name='Mobile Update Must Fail' where id='f5000000-0000-4000-8000-000000000001'$$,
  '42501','permission denied for table suppliers','mobile clients cannot update supplier accounts directly'
 );
 select throws_ok(
- $delete from public.suppliers where id='f5000000-0000-4000-8000-000000000001'$,
+ $$delete from public.suppliers where id='f5000000-0000-4000-8000-000000000001'$$,
  '42501','permission denied for table suppliers','mobile clients cannot delete supplier accounts directly'
 );
 select lives_ok(
- $select public.update_purchase_order(
+ $$select public.update_purchase_order(
   (select id from public.purchase_orders where operation_id='po-idempotency-test'),
   'f5000000-0000-4000-8000-000000000001','f3000000-0000-4000-8000-000000000001','GHS',null,
   '[{"product_id":"f4000000-0000-4000-8000-000000000001","quantity":10,"unit_cost":2.5}]'::jsonb
- )$,
+ )$$,
  'owner can edit an unreceived purchase order'
 );
 select is((select total_amount from public.purchase_orders where operation_id='po-idempotency-test'),25::numeric,'editing preserves the recalculated order total');
 select lives_ok(
- $select public.create_purchase_order(
+ $$select public.create_purchase_order(
  'f2000000-0000-4000-8000-000000000001','f3000000-0000-4000-8000-000000000001',
  'f5000000-0000-4000-8000-000000000001','GHS',null,
  '[{"product_id":"f4000000-0000-4000-8000-000000000001","quantity":1,"unit_cost":1}]'::jsonb,
- 'po-delete-test')$,
+ 'po-delete-test')$$,
  'owner can create a second order for delete testing'
 );
 select lives_ok(
- $select public.delete_purchase_order((select id from public.purchase_orders where operation_id='po-delete-test'))$,
+ $$select public.delete_purchase_order((select id from public.purchase_orders where operation_id='po-delete-test'))$$,
  'owner can delete an order with no receipts or payments'
 );
 select is((select count(*)::integer from public.purchase_orders where operation_id='po-delete-test'),0,'deleted purchase order is removed');
 select is((select count(*)::integer from public.inventory_levels where tenant_id='f2000000-0000-4000-8000-000000000001' and product_id='f4000000-0000-4000-8000-000000000001'),0,'creating an order does not increase stock');
 select set_config('request.jwt.claims','{"sub":"f1000000-0000-4000-8000-000000000002","role":"authenticated"}',true);
 select throws_ok(
- $select public.receive_purchase_order(
+ $$select public.receive_purchase_order(
   (select id from public.purchase_orders where operation_id='po-idempotency-test'),
   jsonb_build_array(jsonb_build_object(
     'item_id',(select id from public.purchase_order_items where purchase_order_id=(select id from public.purchase_orders where operation_id='po-idempotency-test')),
     'quantity',1,'batch_number','LOT-VIEWER','expiry_date',(current_date+60)::text
-  )),null,'viewer-receipt-test')$,
+  )),null,'viewer-receipt-test')$$,
  'P0001','Not authorized to receive stock at this location','viewer role remains read-only and cannot receive stock'
 );
 select set_config('request.jwt.claims','{"sub":"f1000000-0000-4000-8000-000000000001","role":"authenticated"}',true);
