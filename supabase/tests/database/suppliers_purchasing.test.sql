@@ -46,6 +46,40 @@ select lives_ok(
 );
 select is((select count(*)::integer from public.purchase_orders where tenant_id='f2000000-0000-4000-8000-000000000001'),1,'retry creates no duplicate purchase order');
 select is((select total_amount from public.purchase_orders where operation_id='po-idempotency-test'),25::numeric,'purchase order total is calculated from line quantity and unit cost');
+select throws_ok(
+ $insert into public.suppliers(tenant_id,supplier_type,name) values ('f2000000-0000-4000-8000-000000000001','business','Mobile Write Must Fail')$,
+ '42501','permission denied for table suppliers','mobile clients cannot create supplier accounts directly'
+);
+select throws_ok(
+ $update public.suppliers set name='Mobile Update Must Fail' where id='f5000000-0000-4000-8000-000000000001'$,
+ '42501','permission denied for table suppliers','mobile clients cannot update supplier accounts directly'
+);
+select throws_ok(
+ $delete from public.suppliers where id='f5000000-0000-4000-8000-000000000001'$,
+ '42501','permission denied for table suppliers','mobile clients cannot delete supplier accounts directly'
+);
+select lives_ok(
+ $select public.update_purchase_order(
+  (select id from public.purchase_orders where operation_id='po-idempotency-test'),
+  'f5000000-0000-4000-8000-000000000001','f3000000-0000-4000-8000-000000000001','GHS',null,
+  '[{"product_id":"f4000000-0000-4000-8000-000000000001","quantity":10,"unit_cost":2.5}]'::jsonb
+ )$,
+ 'owner can edit an unreceived purchase order'
+);
+select is((select total_amount from public.purchase_orders where operation_id='po-idempotency-test'),25::numeric,'editing preserves the recalculated order total');
+select lives_ok(
+ $select public.create_purchase_order(
+ 'f2000000-0000-4000-8000-000000000001','f3000000-0000-4000-8000-000000000001',
+ 'f5000000-0000-4000-8000-000000000001','GHS',null,
+ '[{"product_id":"f4000000-0000-4000-8000-000000000001","quantity":1,"unit_cost":1}]'::jsonb,
+ 'po-delete-test')$,
+ 'owner can create a second order for delete testing'
+);
+select lives_ok(
+ $select public.delete_purchase_order((select id from public.purchase_orders where operation_id='po-delete-test'))$,
+ 'owner can delete an order with no receipts or payments'
+);
+select is((select count(*)::integer from public.purchase_orders where operation_id='po-delete-test'),0,'deleted purchase order is removed');
 select is((select count(*)::integer from public.inventory_levels where tenant_id='f2000000-0000-4000-8000-000000000001' and product_id='f4000000-0000-4000-8000-000000000001'),0,'creating an order does not increase stock');
 
 select lives_ok(
