@@ -5,7 +5,7 @@ import { createOperationId } from '../../core/inventory/operationId';
 import { colors, spacing } from '../../shared/theme';
 import { useTenant } from '../tenancy/TenantProvider';
 import { listProducts, type ProductInventory } from '../inventory/inventoryApi';
-import { createPurchaseOrder, listPurchaseOrderItems, listPurchaseOrders, listSuppliers, receivePurchaseOrder, recordSupplierPayment, saveSupplier, type PurchaseOrder, type PurchaseOrderItem, type Supplier } from './purchasingApi';
+import { createPurchaseOrder, deletePurchaseOrder, listPurchaseOrderItems, listPurchaseOrders, listSuppliers, receivePurchaseOrder, recordSupplierPayment, updatePurchaseOrder, type PurchaseOrder, type PurchaseOrderItem, type Supplier } from './purchasingApi';
 
 type OrderAction = { order: PurchaseOrder; action: 'receive' | 'payment'; item?: PurchaseOrderItem; operationId: string } | null;
 type DraftLine = { product: ProductInventory; quantity: string; unitCost: string };
@@ -20,16 +20,8 @@ export function PurchasingScreen({ onBack }: { onBack: () => void }) {
   const [refreshing,setRefreshing]=useState(false);
   const [busy,setBusy]=useState(false);
   const [error,setError]=useState<string|null>(null);
-  const [showSupplierForm,setShowSupplierForm]=useState(false);
-  const [editingSupplierId,setEditingSupplierId]=useState<string|null>(null);
-  const [supplierActive,setSupplierActive]=useState(true);
   const [showOrderForm,setShowOrderForm]=useState(false);
-  const [supplierType,setSupplierType]=useState<'business'|'individual'>('business');
-  const [supplierName,setSupplierName]=useState('');
-  const [contactPerson,setContactPerson]=useState('');
-  const [phone,setPhone]=useState('');
-  const [email,setEmail]=useState('');
-  const [terms,setTerms]=useState('');
+  const [editingOrderId,setEditingOrderId]=useState<string|null>(null);
   const [selectedSupplierId,setSelectedSupplierId]=useState('');
   const [selectedProductId,setSelectedProductId]=useState('');
   const [lineQuantity,setLineQuantity]=useState('1');
@@ -69,14 +61,6 @@ export function PurchasingScreen({ onBack }: { onBack: () => void }) {
   const mayManage=canManageOrders(context.membership.role);
   const mayReceive=canReceiveTransfers(context.membership.role);
 
-  async function addSupplier(){
-    if(!context||!supplierName.trim()){setError('Enter a supplier name.');return;}
-    setBusy(true);setError(null);
-    try{await saveSupplier({tenantId:context.tenant.id,id:editingSupplierId??undefined,supplierType,name:supplierName,contactPerson,phone,email,paymentTerms:terms,isActive:supplierActive});
-      setSupplierName('');setContactPerson('');setPhone('');setEmail('');setTerms('');setEditingSupplierId(null);setSupplierActive(true);setShowSupplierForm(false);await load();
-      Alert.alert('Supplier saved',supplierActive?'Supplier details were saved.':'Supplier deactivated; existing orders are preserved.');
-    }catch(caught){setError(caught instanceof Error?caught.message:'Unable to save supplier.');}finally{setBusy(false);}
-  }
   function addLine(){
     const qty=Number(lineQuantity),cost=Number(lineCost);
     if(!selectedProduct){setError('There are no active products to order.');return;}
@@ -89,9 +73,42 @@ export function PurchasingScreen({ onBack }: { onBack: () => void }) {
     if(!draftLines.length){setError('Add at least one product line.');return;}
     if(!/^[A-Z]{3}$/.test(currency.trim().toUpperCase())){setError('Currency must be a three-letter code, e.g. GHS.');return;}
     setBusy(true);setError(null);
-    try{await createPurchaseOrder({tenantId:context.tenant.id,locationId:context.locationId,supplierId:selectedSupplier.id,currency:currency.trim().toUpperCase(),notes:orderNotes,items:draftLines.map(line=>({product:line.product,quantity:Number(line.quantity),unitCost:Number(line.unitCost)})),operationId:orderOperationId});
-      setDraftLines([]);setOrderNotes('');setShowOrderForm(false);setOrderOperationId(createOperationId());await load();Alert.alert('Purchase order created','Stock has not changed. Record a goods receipt when the delivery arrives.');
-    }catch(caught){setError(caught instanceof Error?caught.message:'Unable to create purchase order.');}finally{setBusy(false);}
+    try{
+      const input={tenantId:context.tenant.id,locationId:context.locationId,supplierId:selectedSupplier.id,currency:currency.trim().toUpperCase(),notes:orderNotes,items:draftLines.map(line=>({product:line.product,quantity:Number(line.quantity),unitCost:Number(line.unitCost)}))};
+      if(editingOrderId){
+        await updatePurchaseOrder({orderId:editingOrderId,supplierId:input.supplierId,locationId:input.locationId,currency:input.currency,notes:input.notes,items:input.items});
+      }else{
+        await createPurchaseOrder({...input,operationId:orderOperationId});
+      }
+      setDraftLines([]);setOrderNotes('');setShowOrderForm(false);setEditingOrderId(null);setOrderOperationId(createOperationId());await load();
+      Alert.alert(editingOrderId?'Purchase order updated':'Purchase order created',editingOrderId?'The order was updated.':'Stock has not changed. Record a goods receipt when the delivery arrives.');
+    }catch(caught){setError(caught instanceof Error?caught.message:'Unable to save purchase order.');}finally{setBusy(false);}
+  }
+  async function openEditOrder(order:PurchaseOrder){
+    if(!context)return;
+    setBusy(true);setError(null);
+    try{
+      const lines=await listPurchaseOrderItems(context.tenant.id,order.id);
+      const editableLines=lines.map(line=>{
+        const product=products.find(item=>item.id===line.productId);
+        if(!product)throw new Error('A product on this order is no longer available.');
+        return {product,quantity:String(line.quantityOrdered),unitCost:String(line.unitCost)};
+      });
+      setEditingOrderId(order.id);setSelectedSupplierId(order.supplierId);setSelectedProductId(editableLines[0]?.product.id??'');
+      setDraftLines(editableLines);setCurrency(order.currency);setOrderNotes(order.notes??'');setTab('orders');setShowOrderForm(true);
+    }catch(caught){setError(caught instanceof Error?caught.message:'Unable to load purchase order for editing.');}
+    finally{setBusy(false);}
+  }
+  async function confirmDeleteOrder(order:PurchaseOrder){
+    Alert.alert('Delete purchase order?', 'Only an order with no receipts or supplier payments can be deleted. This action cannot be undone.',[
+      {text:'Keep order',style:'cancel'},
+      {text:'Delete order',style:'destructive',onPress:()=>void (async()=>{
+        setBusy(true);setError(null);
+        try{await deletePurchaseOrder(order.id);await load();Alert.alert('Order deleted','The purchase order was deleted.');}
+        catch(caught){setError(caught instanceof Error?caught.message:'Unable to delete purchase order.');}
+        finally{setBusy(false);}
+      })()}
+    ]);
   }
   async function openReceive(order:PurchaseOrder){
     if(!context)return;
@@ -136,30 +153,18 @@ export function PurchasingScreen({ onBack }: { onBack: () => void }) {
     {error?<Text style={styles.error}>{error}</Text>:null}
 
     {tab==='suppliers'?<>
-      {mayManage?<Pressable onPress={()=>setShowSupplierForm(v=>!v)} style={styles.primary}><Text style={styles.primaryText}>{showSupplierForm?'Close supplier form':editingSupplierId?'Edit supplier':'＋ Add supplier'}</Text></Pressable>:null}
-      {showSupplierForm&&mayManage?<View style={styles.card}>
-        <Text style={styles.cardTitle}>{editingSupplierId?'Edit supplier':'New supplier'}</Text>
-        <View style={styles.row}><Choice label="Business" active={supplierType==='business'} onPress={()=>setSupplierType('business')}/><Choice label="Individual" active={supplierType==='individual'} onPress={()=>setSupplierType('individual')}/></View>
-        <Field label="Supplier name *" value={supplierName} onChangeText={setSupplierName} placeholder="Supplier or person's name"/>
-        <Field label="Contact person" value={contactPerson} onChangeText={setContactPerson} placeholder="Optional"/>
-        <Field label="Phone" value={phone} onChangeText={setPhone} placeholder="Phone number" keyboardType="phone-pad"/>
-        <Field label="Email" value={email} onChangeText={setEmail} placeholder="Email address" keyboardType="email-address"/>
-        <Field label="Payment terms" value={terms} onChangeText={setTerms} placeholder="e.g. 30 days / cash"/>
-        {editingSupplierId?<><Text style={styles.label}>Status</Text><View style={styles.row}><Choice label="Active" active={supplierActive} onPress={()=>setSupplierActive(true)}/><Choice label="Inactive" active={!supplierActive} onPress={()=>setSupplierActive(false)}/></View></>:null}
-        <Pressable disabled={busy} onPress={()=>void addSupplier()} style={styles.primary}><Text style={styles.primaryText}>{busy?'Saving…':editingSupplierId?'Save changes':'Save supplier'}</Text></Pressable>
-      </View>:null}
-      {!suppliers.length&&!loading?<Text style={styles.empty}>No suppliers yet. Add the businesses or individuals you purchase from.</Text>:null}
+      <Text style={styles.intro}>Supplier accounts are created and managed in the admin dashboard. This mobile view is read-only.</Text>
+      {!suppliers.length&&!loading?<Text style={styles.empty}>No suppliers are available for this tenant yet. Ask an authorized dashboard administrator to add a supplier.</Text>:null}
       {suppliers.map(s=><View key={s.id} style={styles.card}>
         <View style={styles.row}><Text style={styles.cardTitle}>{s.name}</Text><Text style={styles.status}>{s.isActive?'ACTIVE':'INACTIVE'}</Text></View>
         <Text style={styles.meta}>{s.supplierType==='business'?'Business':'Individual'}{s.contactPerson?' · '+s.contactPerson:''}</Text>
         {s.phone?<Text style={styles.body}>{s.phone}</Text>:null}{s.email?<Text style={styles.body}>{s.email}</Text>:null}
         {s.paymentTerms?<Text style={styles.body}>Terms: {s.paymentTerms}</Text>:null}
-        {mayManage?<View style={styles.row}><Pressable onPress={()=>{setEditingSupplierId(s.id);setSupplierType(s.supplierType);setSupplierName(s.name);setContactPerson(s.contactPerson??'');setPhone(s.phone??'');setEmail(s.email??'');setTerms(s.paymentTerms??'');setSupplierActive(s.isActive);setShowSupplierForm(true);setError(null);}}><Text style={styles.link}>Edit</Text></Pressable>{s.isActive?<Pressable onPress={()=>Alert.alert('Deactivate supplier?','New purchase orders will be blocked for '+s.name+'. Existing orders and payments remain available.',[{text:'Keep active',style:'cancel'},{text:'Deactivate',style:'destructive',onPress:()=>void saveSupplier({tenantId:context.tenant.id,id:s.id,supplierType:s.supplierType,name:s.name,contactPerson:s.contactPerson??'',phone:s.phone??'',email:s.email??'',paymentTerms:s.paymentTerms??'',isActive:false}).then(load).catch(caught=>setError(caught instanceof Error?caught.message:'Unable to deactivate supplier.'))}])}><Text style={styles.error}>Deactivate</Text></Pressable>:null}</View>:null}
       </View>)}
     </>:<>
-      {mayManage?<Pressable onPress={()=>{setShowOrderForm(v=>{if(!v)setOrderOperationId(createOperationId());return !v;});}} style={styles.primary}><Text style={styles.primaryText}>{showOrderForm?'Close order form':'＋ Create purchase order'}</Text></Pressable>:null}
+      {mayManage?<Pressable onPress={()=>{setShowOrderForm(v=>{if(!v){setOrderOperationId(createOperationId());setEditingOrderId(null);setDraftLines([]);setOrderNotes('');}else{setEditingOrderId(null);}return !v;});}} style={styles.primary}><Text style={styles.primaryText}>{showOrderForm?'Close order form':editingOrderId?'Edit purchase order':'＋ Create purchase order'}</Text></Pressable>:null}
       {showOrderForm&&mayManage?<View style={styles.card}>
-        <Text style={styles.cardTitle}>New purchase order</Text>
+        <Text style={styles.cardTitle}>{editingOrderId?'Edit purchase order':'New purchase order'}</Text>
         <Text style={styles.label}>Supplier</Text>
         {activeSuppliers.map(s=><Choice key={s.id} label={s.name} active={selectedSupplier?.id===s.id} onPress={()=>setSelectedSupplierId(s.id)}/>)}
         {!activeSuppliers.length?<Text style={styles.meta}>Add a supplier before creating an order.</Text>:null}
@@ -172,7 +177,7 @@ export function PurchasingScreen({ onBack }: { onBack: () => void }) {
         <Text style={styles.total}>Order total: {currency} {draftLines.reduce((sum,line)=>sum+Number(line.quantity)*Number(line.unitCost),0).toFixed(2)}</Text>
         <Field label="Currency (3-letter code)" value={currency} onChangeText={setCurrency} placeholder="GHS"/>
         <Field label="Notes" value={orderNotes} onChangeText={setOrderNotes} placeholder="Optional order notes"/>
-        <Pressable disabled={busy} onPress={()=>void submitOrder()} style={styles.primary}><Text style={styles.primaryText}>{busy?'Creating…':'Create order'}</Text></Pressable>
+        <Pressable disabled={busy} onPress={()=>void submitOrder()} style={styles.primary}><Text style={styles.primaryText}>{busy?(editingOrderId?'Saving…':'Creating…'):(editingOrderId?'Save changes':'Create order')}</Text></Pressable>
       </View>:null}
       {!orders.length&&!loading?<Text style={styles.empty}>No purchase orders for this location yet.</Text>:null}
       {orders.map(order=><View key={order.id} style={styles.card}>
@@ -182,6 +187,10 @@ export function PurchasingScreen({ onBack }: { onBack: () => void }) {
         <Text style={[styles.body,order.outstandingAmount>0&&styles.balance]}>Outstanding: {order.currency} {order.outstandingAmount.toFixed(2)}</Text></>:<Text style={styles.body}>Order total: {order.currency} {order.totalAmount.toFixed(2)}</Text>}
         <Text style={styles.meta}>{order.unitsOutstanding} unit(s) still to receive</Text>
         {order.notes?<Text style={styles.body}>{order.notes}</Text>:null}
+        {mayManage&&order.status==='ordered'?<View style={styles.row}>
+          <Pressable disabled={busy} onPress={()=>void openEditOrder(order)} style={styles.outline}><Text style={styles.outlineText}>Edit order</Text></Pressable>
+          <Pressable disabled={busy} onPress={()=>confirmDeleteOrder(order)} style={styles.outline}><Text style={styles.error}>Delete order</Text></Pressable>
+        </View>:null}
         {mayReceive&&order.unitsOutstanding>0&&order.status!=='cancelled'?<Pressable disabled={busy} onPress={()=>void openReceive(order)} style={styles.outline}><Text style={styles.outlineText}>Receive stock</Text></Pressable>:null}
         {mayManage&&order.outstandingAmount>0&&order.status!=='cancelled'?<Pressable onPress={()=>{setAction({order,action:'payment',operationId:createOperationId()});setPaymentAmount(order.outstandingAmount.toFixed(2));setPaymentMethod('mobile_money');}} style={styles.outline}><Text style={styles.outlineText}>Record supplier payment</Text></Pressable>:null}
         {action?.order.id===order.id&&action.action==='receive'&&action.item?<View style={styles.panel}>
