@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Alert, Pressable, RefreshControl, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
-import { canManageOrders, canReceiveTransfers } from '../../core/tenancy/permissions';
+import { canManageOrders, canReceiveTransfers, canViewPurchaseOrders } from '../../core/tenancy/permissions';
 import { createOperationId } from '../../core/inventory/operationId';
 import { colors, spacing } from '../../shared/theme';
 import { useTenant } from '../tenancy/TenantProvider';
@@ -47,8 +47,11 @@ export function PurchasingScreen({ onBack }: { onBack: () => void }) {
     if(!context)return;
     setError(null);
     try{
+      const mayViewOrders=canViewPurchaseOrders(context.membership.role);
       const [nextSuppliers,nextProducts,nextOrders]=await Promise.all([
-        listSuppliers(context.tenant.id),listProducts(context.tenant.id,context.locationId),listPurchaseOrders(context.tenant.id,context.locationId)
+        listSuppliers(context.tenant.id),
+        mayViewOrders?listProducts(context.tenant.id,context.locationId):Promise.resolve([]),
+        mayViewOrders?listPurchaseOrders(context.tenant.id,context.locationId):Promise.resolve([])
       ]);
       setSuppliers(nextSuppliers);setProducts(nextProducts);setOrders(nextOrders);
       if(!selectedSupplierId&&nextSuppliers.length)setSelectedSupplierId(nextSuppliers[0].id);
@@ -144,15 +147,15 @@ export function PurchasingScreen({ onBack }: { onBack: () => void }) {
     <Pressable onPress={onBack}><Text style={styles.link}>← Back</Text></Pressable>
     <Text style={styles.title}>Suppliers & purchasing</Text>
     <Text style={styles.subtitle}>{context.tenant.name} · {location?.name}</Text>
-    <Text style={styles.intro}>Orders do not change stock. Receiving records the delivered batch and updates inventory; supplier payments reduce the outstanding balance.</Text>
+    {mayViewOrders?<Text style={styles.intro}>Orders do not change stock. Receiving records the delivered batch and updates inventory; supplier payments reduce the outstanding balance.</Text>:null}
     <View style={styles.tabs}>
-      <Pressable onPress={()=>{setTab('orders');setError(null);}} style={[styles.tab,tab==='orders'&&styles.activeTab]}><Text style={[styles.tabText,tab==='orders'&&styles.activeTabText]}>Purchase orders</Text></Pressable>
-      <Pressable onPress={()=>{setTab('suppliers');setError(null);}} style={[styles.tab,tab==='suppliers'&&styles.activeTab]}><Text style={[styles.tabText,tab==='suppliers'&&styles.activeTabText]}>Suppliers</Text></Pressable>
+      {mayViewOrders?<Pressable onPress={()=>{setTab('orders');setError(null);}} style={[styles.tab,visibleTab==='orders'&&styles.activeTab]}><Text style={[styles.tabText,visibleTab==='orders'&&styles.activeTabText]}>Purchase orders</Text></Pressable>:null}
+      <Pressable onPress={()=>{setTab('suppliers');setError(null);}} style={[styles.tab,(!mayViewOrders||visibleTab==='suppliers')&&styles.activeTab]}><Text style={[styles.tabText,(!mayViewOrders||visibleTab==='suppliers')&&styles.activeTabText]}>Suppliers</Text></Pressable>
     </View>
     {loading?<ActivityIndicator color={colors.primary} style={styles.loader}/>:null}
     {error?<Text style={styles.error}>{error}</Text>:null}
 
-    {tab==='suppliers'?<>
+    {visibleTab==='suppliers'?<>
       <Text style={styles.intro}>Supplier accounts are created and managed in the admin dashboard. This mobile view is read-only.</Text>
       {!suppliers.length&&!loading?<Text style={styles.empty}>No suppliers are available for this tenant yet. Ask an authorized dashboard administrator to add a supplier.</Text>:null}
       {suppliers.map(s=><View key={s.id} style={styles.card}>
