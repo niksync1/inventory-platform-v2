@@ -1,9 +1,20 @@
 begin;
 set local search_path = pg_catalog, public, pg_temp;
 
--- Viewers must not be able to read purchase orders or their operational
--- details through direct table/view queries. Warehouse users retain read
--- access because they need to select orders when receiving stock.
+-- Viewers must not be able to read supplier records, purchase orders, or
+-- their operational details through direct table/view queries. Warehouse
+-- users may read supplier details for receiving, but supplier writes remain
+-- unavailable to authenticated mobile clients and are managed in the dashboard.
+drop policy if exists "Tenant members read suppliers" on public.suppliers;
+create policy "Authorized roles read suppliers" on public.suppliers
+for select to authenticated
+using (
+  public.has_tenant_role(tenant_id, array['owner','admin','manager','warehouse'])
+);
+
+comment on policy "Authorized roles read suppliers" on public.suppliers
+  is 'Viewers cannot read supplier accounts; operational roles can read suppliers within their tenant.';
+
 drop policy if exists "Assigned members read purchase orders" on public.purchase_orders;
 create policy "Authorized roles read purchase orders" on public.purchase_orders
 for select to authenticated
