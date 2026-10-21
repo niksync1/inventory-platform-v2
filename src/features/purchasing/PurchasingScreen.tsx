@@ -61,6 +61,8 @@ export function PurchasingScreen({ onBack }: { onBack: () => void }) {
   },[context,selectedProductId,selectedSupplierId]);
   useEffect(()=>{void load();},[load]);
   if(!context)return null;
+  const mayViewOrders=canViewPurchaseOrders(context.membership.role);
+  const visibleTab=mayViewOrders?tab:'suppliers';
   const mayManage=canManageOrders(context.membership.role);
   const mayReceive=canReceiveTransfers(context.membership.role);
 
