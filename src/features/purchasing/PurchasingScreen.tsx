@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Alert, Pressable, RefreshControl, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
-import { canManageOrders, canReceiveTransfers, canViewPurchaseOrders } from '../../core/tenancy/permissions';
+import { canManageOrders, canReceiveTransfers, canAccessPurchasing, canViewPurchaseOrders } from '../../core/tenancy/permissions';
 import { createOperationId } from '../../core/inventory/operationId';
 import { colors, spacing } from '../../shared/theme';
 import { useTenant } from '../tenancy/TenantProvider';
@@ -45,7 +45,7 @@ export function PurchasingScreen({ onBack }: { onBack: () => void }) {
 
   const load=useCallback(async()=>{
     if(!context)return;
-    if(!canViewPurchaseOrders(context.membership.role)){
+    if(!canAccessPurchasing(context.membership.role)){
       setSuppliers([]);setProducts([]);setOrders([]);setLoading(false);setRefreshing(false);return;
     }
     setError(null);
@@ -68,7 +68,7 @@ export function PurchasingScreen({ onBack }: { onBack: () => void }) {
   const visibleTab=mayViewOrders?tab:'suppliers';
   const mayManage=canManageOrders(context.membership.role);
   const mayReceive=canReceiveTransfers(context.membership.role);
-  if(!mayViewOrders)return null;
+  if(!canAccessPurchasing(context.membership.role))return null;
 
   function addLine(){
     const qty=Number(lineQuantity),cost=Number(lineCost);
