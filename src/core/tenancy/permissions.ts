@@ -7,6 +7,7 @@ const INVENTORY_MANAGERS = new Set<TenantRole>([
   'warehouse',
 ]);
 const ORDER_MANAGERS = new Set<TenantRole>(['owner', 'admin', 'manager']);
+const PURCHASE_ORDER_READERS = new Set<TenantRole>(['owner', 'admin', 'manager', 'warehouse']);
 const TRANSFER_MANAGERS = new Set<TenantRole>(['owner', 'admin', 'manager']);
 
 export function canManageInventory(role: TenantRole): boolean {
@@ -15,6 +16,11 @@ export function canManageInventory(role: TenantRole): boolean {
 
 export function canManageOrders(role: TenantRole): boolean {
   return ORDER_MANAGERS.has(role);
+}
+
+/** Viewers have no access to purchase orders; warehouse users may view orders to receive stock. */
+export function canViewPurchaseOrders(role: TenantRole): boolean {
+  return PURCHASE_ORDER_READERS.has(role);
 }
 
 export function canManageTransfers(role: TenantRole): boolean {
