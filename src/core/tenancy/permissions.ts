@@ -18,6 +18,11 @@ export function canManageOrders(role: TenantRole): boolean {
   return ORDER_MANAGERS.has(role);
 }
 
+/** Viewers cannot access the purchasing area; warehouse users retain read access for receiving. */
+export function canAccessPurchasing(role: TenantRole): boolean {
+  return PURCHASE_ORDER_READERS.has(role);
+}
+
 /** Viewers have no access to purchase orders; warehouse users may view orders to receive stock. */
 export function canViewPurchaseOrders(role: TenantRole): boolean {
   return PURCHASE_ORDER_READERS.has(role);
