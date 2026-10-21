@@ -53,15 +53,15 @@ select lives_ok(
 select is((select count(*)::integer from public.purchase_orders where tenant_id='f2000000-0000-4000-8000-000000000001'),1,'retry creates no duplicate purchase order');
 select is((select total_amount from public.purchase_orders where operation_id='po-idempotency-test'),25::numeric,'purchase order total is calculated from line quantity and unit cost');
 select throws_ok(
- $$insert into public.suppliers(tenant_id,supplier_type,name) values ('f2000000-0000-4000-8000-000000000001','business','Mobile Write Must Fail')$$,
+ $$$insert into public.suppliers(tenant_id,supplier_type,name) values ('f2000000-0000-4000-8000-000000000001','business','Mobile Write Must Fail')$$,
  '42501','permission denied for table suppliers','mobile clients cannot create supplier accounts directly'
 );
 select throws_ok(
- $$update public.suppliers set name='Mobile Update Must Fail' where id='f5000000-0000-4000-8000-000000000001'$$,
+ $$$update public.suppliers set name='Mobile Update Must Fail' where id='f5000000-0000-4000-8000-000000000001'$$,
  '42501','permission denied for table suppliers','mobile clients cannot update supplier accounts directly'
 );
 select throws_ok(
- $$delete from public.suppliers where id='f5000000-0000-4000-8000-000000000001'$$,
+ $$$delete from public.suppliers where id='f5000000-0000-4000-8000-000000000001'$$,
  '42501','permission denied for table suppliers','mobile clients cannot delete supplier accounts directly'
 );
 select lives_ok(
@@ -95,7 +95,7 @@ select is((select count(*)::integer from public.purchase_orders where tenant_id=
 select is((select count(*)::integer from public.purchase_order_items where tenant_id='f2000000-0000-4000-8000-000000000001'),0,'viewer cannot read purchase order line items');
 select is((select count(*)::integer from public.purchase_order_report where tenant_id='f2000000-0000-4000-8000-000000000001'),0,'viewer cannot read the purchase order report');
 select throws_ok(
- $$select public.receive_purchase_order(
+ $$$select public.receive_purchase_order(
   current_setting('test.purchase_order_id')::uuid,
   jsonb_build_array(jsonb_build_object(
     'item_id',current_setting('test.purchase_order_item_id')::uuid,
@@ -118,18 +118,18 @@ select throws_ok(
 select set_config('request.jwt.claims','{"sub":"f1000000-0000-4000-8000-000000000003","role":"authenticated"}',true);
 select is((select count(*)::integer from public.suppliers where tenant_id='f2000000-0000-4000-8000-000000000001'),1,'warehouse can read suppliers needed for receiving');
 select throws_ok(
- $insert into public.suppliers(tenant_id,supplier_type,name) values ('f2000000-0000-4000-8000-000000000001','business','Warehouse Create Must Fail')$,
+ $$insert into public.suppliers(tenant_id,supplier_type,name) values ('f2000000-0000-4000-8000-000000000001','business','Warehouse Create Must Fail')$$,
  '42501','permission denied for table suppliers','warehouse cannot create supplier accounts');
 select throws_ok(
- $update public.suppliers set name='Warehouse Update Must Fail' where id='f5000000-0000-4000-8000-000000000001'$,
+ $$update public.suppliers set name='Warehouse Update Must Fail' where id='f5000000-0000-4000-8000-000000000001'$,
  '42501','permission denied for table suppliers','warehouse cannot update supplier accounts');
 select throws_ok(
- $delete from public.suppliers where id='f5000000-0000-4000-8000-000000000001'$,
+ $$delete from public.suppliers where id='f5000000-0000-4000-8000-000000000001'$,
  '42501','permission denied for table suppliers','warehouse cannot delete supplier accounts');
 select set_config('request.jwt.claims','{"sub":"f1000000-0000-4000-8000-000000000001","role":"authenticated"}',true);
 
 select lives_ok(
- $select public.receive_purchase_order(
+ $$select public.receive_purchase_order(
   (select id from public.purchase_orders where operation_id='po-idempotency-test'),
   jsonb_build_array(jsonb_build_object(
     'item_id',(select id from public.purchase_order_items where purchase_order_id=(select id from public.purchase_orders where operation_id='po-idempotency-test')),
@@ -138,7 +138,7 @@ select lives_ok(
  'owner can receive a partial delivery into a tracked batch'
 );
 select lives_ok(
- $$select public.receive_purchase_order(
+ $$$select public.receive_purchase_order(
   (select id from public.purchase_orders where operation_id='po-idempotency-test'),
   jsonb_build_array(jsonb_build_object(
     'item_id',(select id from public.purchase_order_items where purchase_order_id=(select id from public.purchase_orders where operation_id='po-idempotency-test')),
@@ -162,7 +162,7 @@ select throws_ok(
 );
 
 select lives_ok(
- $$select public.receive_purchase_order(
+ $$$select public.receive_purchase_order(
   (select id from public.purchase_orders where operation_id='po-idempotency-test'),
   jsonb_build_array(jsonb_build_object(
     'item_id',(select id from public.purchase_order_items where purchase_order_id=(select id from public.purchase_orders where operation_id='po-idempotency-test')),
