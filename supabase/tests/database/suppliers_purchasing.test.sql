@@ -91,7 +91,7 @@ select is((select count(*)::integer from public.purchase_orders where tenant_id=
 select is((select count(*)::integer from public.purchase_order_items where tenant_id='f2000000-0000-4000-8000-000000000001'),0,'viewer cannot read purchase order line items');
 select is((select count(*)::integer from public.purchase_order_report where tenant_id='f2000000-0000-4000-8000-000000000001'),0,'viewer cannot read the purchase order report');
 select throws_ok(
- $select public.receive_purchase_order(
+ $$select public.receive_purchase_order(
   current_setting('test.purchase_order_id')::uuid,
   jsonb_build_array(jsonb_build_object(
     'item_id',current_setting('test.purchase_order_item_id')::uuid,
