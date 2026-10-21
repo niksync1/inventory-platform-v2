@@ -45,6 +45,9 @@ export function PurchasingScreen({ onBack }: { onBack: () => void }) {
 
   const load=useCallback(async()=>{
     if(!context)return;
+    if(!canViewPurchaseOrders(context.membership.role)){
+      setSuppliers([]);setProducts([]);setOrders([]);setLoading(false);setRefreshing(false);return;
+    }
     setError(null);
     try{
       const mayViewOrders=canViewPurchaseOrders(context.membership.role);
@@ -65,6 +68,7 @@ export function PurchasingScreen({ onBack }: { onBack: () => void }) {
   const visibleTab=mayViewOrders?tab:'suppliers';
   const mayManage=canManageOrders(context.membership.role);
   const mayReceive=canReceiveTransfers(context.membership.role);
+  if(!mayViewOrders)return null;
 
   function addLine(){
     const qty=Number(lineQuantity),cost=Number(lineCost);
