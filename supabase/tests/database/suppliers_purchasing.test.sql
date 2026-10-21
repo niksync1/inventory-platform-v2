@@ -87,8 +87,11 @@ select is((select count(*)::integer from public.inventory_levels where tenant_id
 select set_config('test.purchase_order_id',(select id::text from public.purchase_orders where operation_id='po-idempotency-test'),true);
 select set_config('test.purchase_order_item_id',(select id::text from public.purchase_order_items where purchase_order_id=(select id from public.purchase_orders where operation_id='po-idempotency-test')),true);
 select set_config('request.jwt.claims','{"sub":"f1000000-0000-4000-8000-000000000002","role":"authenticated"}',true);
+select is((select count(*)::integer from public.purchase_orders where tenant_id='f2000000-0000-4000-8000-000000000001'),0,'viewer cannot read purchase orders');
+select is((select count(*)::integer from public.purchase_order_items where tenant_id='f2000000-0000-4000-8000-000000000001'),0,'viewer cannot read purchase order line items');
+select is((select count(*)::integer from public.purchase_order_report where tenant_id='f2000000-0000-4000-8000-000000000001'),0,'viewer cannot read the purchase order report');
 select throws_ok(
- $$select public.receive_purchase_order(
+ $select public.receive_purchase_order(
   current_setting('test.purchase_order_id')::uuid,
   jsonb_build_array(jsonb_build_object(
     'item_id',current_setting('test.purchase_order_item_id')::uuid,
@@ -154,6 +157,14 @@ select lives_ok(
 );
 select is((select quantity from public.inventory_levels where tenant_id='f2000000-0000-4000-8000-000000000001' and product_id='f4000000-0000-4000-8000-000000000001'),10,'all received quantities update stock');
 select is((select status from public.purchase_orders where operation_id='po-idempotency-test'),'received','fully received order is marked received');
+
+select set_config('request.jwt.claims','{"sub":"f1000000-0000-4000-8000-000000000002","role":"authenticated"}',true);
+select is((select count(*)::integer from public.purchase_orders where tenant_id='f2000000-0000-4000-8000-000000000001'),0,'viewer cannot read an existing purchase order');
+select is((select count(*)::integer from public.purchase_order_items where tenant_id='f2000000-0000-4000-8000-000000000001'),0,'viewer cannot read existing order lines');
+select is((select count(*)::integer from public.purchase_receipts where tenant_id='f2000000-0000-4000-8000-000000000001'),0,'viewer cannot read goods receipts for purchase orders');
+select is((select count(*)::integer from public.purchase_receipt_items where tenant_id='f2000000-0000-4000-8000-000000000001'),0,'viewer cannot read goods receipt lines');
+select is((select count(*)::integer from public.purchase_order_report where tenant_id='f2000000-0000-4000-8000-000000000001'),0,'viewer cannot read the report for existing purchase orders');
+select set_config('request.jwt.claims','{"sub":"f1000000-0000-4000-8000-000000000001","role":"authenticated"}',true);
 
 select lives_ok(
  $$select public.record_supplier_payment(
