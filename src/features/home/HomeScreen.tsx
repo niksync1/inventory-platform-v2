@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Alert, Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { canManageInventory, canOpenAdminDashboard } from '../../core/tenancy/permissions';
+import { canManageInventory, canOpenAdminDashboard, canViewPurchaseOrders } from '../../core/tenancy/permissions';
 import { colors, spacing } from '../../shared/theme';
 import { useAuth } from '../auth/AuthProvider';
 import { countActiveAlerts } from '../alerts/alertsApi';
@@ -101,7 +101,7 @@ export function HomeScreen({ onChangeContext, onInventory, onReports, onAlerts, 
       <MenuAction icon="bar-chart-outline" title="Reports" onPress={onReports} />
       <MenuAction icon="notifications-outline" title={activeAlerts ? 'Alerts (' + activeAlerts + ')' : 'Alerts'} onPress={onAlerts} />
       <MenuAction icon="swap-horizontal-outline" title="Transfers" onPress={onTransfers} />
-      <MenuAction icon="cart-outline" title="Suppliers & purchasing" onPress={onPurchasing} />
+      {canViewPurchaseOrders(context.membership.role) ? <MenuAction icon="cart-outline" title="Suppliers & purchasing" onPress={onPurchasing} /> : null}
       <MenuAction icon="cloud-offline-outline" title={pendingCount || failedCount ? 'Offline sync (' + (pendingCount + failedCount) + ')' : 'Offline sync'} onPress={onOfflineSync} />
       <MenuAction icon="settings-outline" title="Notifications" onPress={onNotifications} />
       {isOwner && dashboardUrl ? <MenuAction icon="shield-checkmark-outline" title="Admin dashboard" onPress={() => void openAdminDashboard()} /> : null}
