@@ -21,6 +21,9 @@ values ('f2000000-0000-4000-8000-000000000001','f1000000-0000-4000-8000-00000000
 insert into auth.users(id,email) values ('f1000000-0000-4000-8000-000000000002','purchasing-viewer@test.invalid');
 insert into public.tenant_memberships(tenant_id,user_id,role,status)
 values ('f2000000-0000-4000-8000-000000000001','f1000000-0000-4000-8000-000000000002','viewer','active');
+insert into auth.users(id,email) values ('f1000000-0000-4000-8000-000000000003','purchasing-warehouse@test.invalid');
+insert into public.tenant_memberships(tenant_id,user_id,role,status)
+values ('f2000000-0000-4000-8000-000000000001','f1000000-0000-4000-8000-000000000003','warehouse','active');
 insert into public.locations(id,tenant_id,name,code)
 values ('f3000000-0000-4000-8000-000000000001','f2000000-0000-4000-8000-000000000001','Main','MAIN');
 insert into public.products(id,tenant_id,name,slug,price)
@@ -87,6 +90,7 @@ select is((select count(*)::integer from public.inventory_levels where tenant_id
 select set_config('test.purchase_order_id',(select id::text from public.purchase_orders where operation_id='po-idempotency-test'),true);
 select set_config('test.purchase_order_item_id',(select id::text from public.purchase_order_items where purchase_order_id=(select id from public.purchase_orders where operation_id='po-idempotency-test')),true);
 select set_config('request.jwt.claims','{"sub":"f1000000-0000-4000-8000-000000000002","role":"authenticated"}',true);
+select is((select count(*)::integer from public.suppliers where tenant_id='f2000000-0000-4000-8000-000000000001'),0,'viewer cannot read supplier records through direct queries');
 select is((select count(*)::integer from public.purchase_orders where tenant_id='f2000000-0000-4000-8000-000000000001'),0,'viewer cannot read purchase orders');
 select is((select count(*)::integer from public.purchase_order_items where tenant_id='f2000000-0000-4000-8000-000000000001'),0,'viewer cannot read purchase order line items');
 select is((select count(*)::integer from public.purchase_order_report where tenant_id='f2000000-0000-4000-8000-000000000001'),0,'viewer cannot read the purchase order report');
@@ -111,10 +115,21 @@ select throws_ok(
  $$select public.delete_purchase_order(current_setting('test.purchase_order_id')::uuid)$$,
  'P0001','Not authorized to delete this purchase order','viewer cannot delete purchase orders'
 );
+select set_config('request.jwt.claims','{"sub":"f1000000-0000-4000-8000-000000000003","role":"authenticated"}',true);
+select is((select count(*)::integer from public.suppliers where tenant_id='f2000000-0000-4000-8000-000000000001'),1,'warehouse can read suppliers needed for receiving');
+select throws_ok(
+ $insert into public.suppliers(tenant_id,supplier_type,name) values ('f2000000-0000-4000-8000-000000000001','business','Warehouse Create Must Fail')$,
+ '42501','permission denied for table suppliers','warehouse cannot create supplier accounts');
+select throws_ok(
+ $update public.suppliers set name='Warehouse Update Must Fail' where id='f5000000-0000-4000-8000-000000000001'$,
+ '42501','permission denied for table suppliers','warehouse cannot update supplier accounts');
+select throws_ok(
+ $delete from public.suppliers where id='f5000000-0000-4000-8000-000000000001'$,
+ '42501','permission denied for table suppliers','warehouse cannot delete supplier accounts');
 select set_config('request.jwt.claims','{"sub":"f1000000-0000-4000-8000-000000000001","role":"authenticated"}',true);
 
 select lives_ok(
- $$select public.receive_purchase_order(
+ $select public.receive_purchase_order(
   (select id from public.purchase_orders where operation_id='po-idempotency-test'),
   jsonb_build_array(jsonb_build_object(
     'item_id',(select id from public.purchase_order_items where purchase_order_id=(select id from public.purchase_orders where operation_id='po-idempotency-test')),
