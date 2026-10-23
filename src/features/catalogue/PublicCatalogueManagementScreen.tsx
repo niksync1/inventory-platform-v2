@@ -3,7 +3,7 @@ import { ActivityIndicator, FlatList, Pressable, StyleSheet, Text, TextInput, Vi
 import { colors, spacing } from '../../shared/theme';
 import { supabase } from '../../shared/supabase';
 import { useTenant } from '../tenancy/TenantProvider';
-import { listProducts, type ProductInventory } from './inventoryApi';
+import { listProducts, type ProductInventory } from '../inventory/inventoryApi';
 
 interface ListingRow { product_id: string; retail_price: number; currency: string; is_published: boolean; }
 export function PublicCatalogueManagementScreen({ onBack }: { onBack: () => void }) {
