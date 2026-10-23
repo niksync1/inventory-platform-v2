@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { ActivityIndicator, SafeAreaView, StyleSheet } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { AuthProvider, useAuth } from './src/features/auth/AuthProvider';
@@ -19,9 +19,12 @@ import { NotificationPreferencesScreen } from './src/features/notifications/Noti
 import { findProductByBarcode } from './src/features/inventory/inventoryApi';
 import { TenantProvider, useTenant } from './src/features/tenancy/TenantProvider';
 import { TenantSelectionScreen } from './src/features/tenancy/TenantSelectionScreen';
+import { PublicCatalogueScreen } from './src/features/catalogue/PublicCatalogueScreen';
+import { PublicCatalogueManagementScreen } from './src/features/catalogue/PublicCatalogueManagementScreen';
+import { supabase } from './src/shared/supabase';
 import { colors } from './src/shared/theme';
 
-type Route = { name: 'home' } | { name: 'purchasing' } | { name: 'reports' } | { name: 'alerts' } | { name: 'transfers' } | { name: 'offline-sync' } | { name: 'notifications' } | { name: 'inventory' } | { name: 'scanner' } | { name: 'product'; productId: string } | { name: 'movement'; productId: string; type: 'in' | 'out' } | { name: 'transfer-create'; productId: string; batchId: string };
+type Route = { name: 'home' } | { name: 'public-catalogue-management' } | { name: 'purchasing' } | { name: 'reports' } | { name: 'alerts' } | { name: 'transfers' } | { name: 'offline-sync' } | { name: 'notifications' } | { name: 'inventory' } | { name: 'scanner' } | { name: 'product'; productId: string } | { name: 'movement'; productId: string; type: 'in' | 'out' } | { name: 'transfer-create'; productId: string; batchId: string };
 
 export default function App() {
   return <AuthProvider><SafeAreaView style={styles.screen}><StatusBar style="dark" /><AppContent /></SafeAreaView></AuthProvider>;
@@ -31,7 +34,39 @@ function AppContent() {
   const { session, loading } = useAuth();
   if (loading) return <ActivityIndicator color={colors.primary} style={styles.loader} />;
   if (!session) return <SignInScreen />;
-  return <TenantProvider key={session.user.id}><OfflineSyncProvider><AuthenticatedApp /></OfflineSyncProvider></TenantProvider>;
+  return <AccountRouter key={session.user.id} />;
+}
+
+function AccountRouter() {
+  const { session, signOut } = useAuth();
+  const [routeMode, setRouteMode] = useState<'loading' | 'public' | 'business'>('loading');
+  const [forceBusiness, setForceBusiness] = useState(false);
+
+  useEffect(() => { if (!session) setForceBusiness(false); }, [session]);
+
+  useEffect(() => {
+    let active = true;
+    async function resolve() {
+      if (!session) return;
+      try {
+        const result = await supabase.from('tenant_memberships').select('tenant_id').eq('user_id', session.user.id).eq('status', 'active').limit(1);
+        if (result.error) throw result.error;
+        if (!active) return;
+        if ((result.data ?? []).length > 0) setRouteMode('business');
+        else setRouteMode(session.user.user_metadata?.signup_intent === 'viewer' ? 'public' : 'business');
+      } catch {
+        if (active) setRouteMode('business');
+      }
+    }
+    void resolve();
+    return () => { active = false; };
+  }, [session]);
+
+  if (routeMode === 'loading') return <ActivityIndicator color={colors.primary} style={styles.loader} />;
+  if (routeMode === 'public' && !forceBusiness) {
+    return <PublicCatalogueScreen onCreateBusiness={() => setForceBusiness(true)} onSignOut={async () => { setForceBusiness(false); await signOut(); }} />;
+  }
+  return <TenantProvider key={session?.user.id}><OfflineSyncProvider><AuthenticatedApp /></OfflineSyncProvider></TenantProvider>;
 }
 
 function AuthenticatedApp() {
@@ -55,6 +90,7 @@ function AuthenticatedApp() {
     }} />;
   }
 
+  if (route.name === 'public-catalogue-management') return <PublicCatalogueManagementScreen onBack={() => setRoute({ name: 'home' })} />;
   if (route.name === 'purchasing') return <PurchasingScreen onBack={() => setRoute({ name: 'home' })} />;
   if (route.name === 'reports') return <ReportsScreen onBack={() => setRoute({ name: 'home' })} />;
   if (route.name === 'alerts') return <AlertsScreen onBack={() => setRoute({ name: 'home' })} />;
@@ -95,6 +131,7 @@ function AuthenticatedApp() {
     onAlerts={() => setRoute({ name: 'alerts' })}
     onTransfers={() => setRoute({ name: 'transfers' })}
     onPurchasing={() => setRoute({ name: 'purchasing' })}
+    onPublicCatalogue={() => setRoute({ name: 'public-catalogue-management' })}
     onOfflineSync={() => setRoute({ name: 'offline-sync' })}
     onNotifications={() => setRoute({ name: 'notifications' })}
     onSignOut={async () => {

@@ -10,6 +10,7 @@ export function SignInScreen() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [passwordVisible, setPasswordVisible] = useState(false);
+  const [signupIntent, setSignupIntent] = useState<'viewer' | 'business'>('viewer');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
@@ -24,7 +25,7 @@ export function SignInScreen() {
         const result = await supabase.auth.signUp({
           email: email.trim(),
           password,
-          options: { data: { name: name.trim() } },
+          options: { data: { name: name.trim(), signup_intent: signupIntent } },
         });
         if (result.error) throw result.error;
         if (!result.data.session) {
@@ -42,7 +43,11 @@ export function SignInScreen() {
   return <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
     <Text style={styles.eyebrow}>INVENTORY PLATFORM</Text>
     <Text style={styles.title}>{mode === 'sign-in' ? 'Welcome back' : 'Create your account'}</Text>
-    <Text style={styles.subtitle}>{mode === 'sign-in' ? 'Sign in to your business inventory.' : 'Verify your email before creating a business trial.'}</Text>
+    <Text style={styles.subtitle}>{mode === 'sign-in' ? 'Sign in to your account.' : signupIntent === 'viewer' ? 'Create an account to discover products from participating businesses.' : 'Create a business owner account and start an inventory trial.'}</Text>
+    {mode === 'sign-up' ? <View style={styles.intentRow}>
+      <Pressable onPress={() => setSignupIntent('viewer')} style={[styles.intentOption, signupIntent === 'viewer' && styles.intentSelected]}><Text style={[styles.intentText, signupIntent === 'viewer' && styles.intentTextSelected]}>Discover products</Text></Pressable>
+      <Pressable onPress={() => setSignupIntent('business')} style={[styles.intentOption, signupIntent === 'business' && styles.intentSelected]}><Text style={[styles.intentText, signupIntent === 'business' && styles.intentTextSelected]}>Create a business</Text></Pressable>
+    </View> : null}
     {mode === 'sign-up' ? <TextInput autoComplete="name" maxLength={100} placeholder="Full name" style={styles.input} value={name} onChangeText={setName} /> : null}
     <TextInput autoCapitalize="none" autoComplete="email" keyboardType="email-address" placeholder="Email" style={styles.input} value={email} onChangeText={setEmail} />
     <View style={styles.passwordField}>
@@ -72,4 +77,4 @@ export function SignInScreen() {
   </ScrollView>;
 }
 
-const styles = StyleSheet.create({ container: { flexGrow: 1, justifyContent: 'center', padding: spacing.xl }, eyebrow: { color: colors.primary, fontSize: 12, fontWeight: '700', letterSpacing: 1.6 }, title: { color: colors.text, fontSize: 34, fontWeight: '700', marginTop: spacing.sm }, subtitle: { color: colors.textMuted, fontSize: 16, marginBottom: spacing.lg, marginTop: spacing.sm }, input: { backgroundColor: colors.surface, borderColor: colors.border, borderRadius: 12, borderWidth: 1, fontSize: 16, marginTop: spacing.md, padding: spacing.md }, passwordField: { alignItems: 'center', backgroundColor: colors.surface, borderColor: colors.border, borderRadius: 12, borderWidth: 1, flexDirection: 'row', marginTop: spacing.md, paddingHorizontal: spacing.md }, passwordInput: { flex: 1, fontSize: 16, paddingVertical: spacing.md }, visibilityButton: { justifyContent: 'center', paddingLeft: spacing.sm }, error: { color: '#B42318', marginTop: spacing.md }, message: { color: '#067647', marginTop: spacing.md }, button: { alignItems: 'center', backgroundColor: colors.primary, borderRadius: 12, justifyContent: 'center', marginTop: spacing.lg, minHeight: 52 }, buttonText: { color: '#fff', fontWeight: '700' }, disabled: { opacity: 0.5 }, switch: { color: colors.primary, fontWeight: '700', marginTop: spacing.lg, textAlign: 'center' } });
+const styles = StyleSheet.create({ intentRow: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.md }, intentOption: { alignItems: 'center', borderColor: colors.border, borderRadius: 10, borderWidth: 1, flex: 1, justifyContent: 'center', padding: spacing.sm }, intentSelected: { backgroundColor: '#E6F4EF', borderColor: colors.primary }, intentText: { color: colors.textMuted, fontSize: 12, fontWeight: '600', textAlign: 'center' }, intentTextSelected: { color: colors.primary }, container: { flexGrow: 1, justifyContent: 'center', padding: spacing.xl }, eyebrow: { color: colors.primary, fontSize: 12, fontWeight: '700', letterSpacing: 1.6 }, title: { color: colors.text, fontSize: 34, fontWeight: '700', marginTop: spacing.sm }, subtitle: { color: colors.textMuted, fontSize: 16, marginBottom: spacing.lg, marginTop: spacing.sm }, input: { backgroundColor: colors.surface, borderColor: colors.border, borderRadius: 12, borderWidth: 1, fontSize: 16, marginTop: spacing.md, padding: spacing.md }, passwordField: { alignItems: 'center', backgroundColor: colors.surface, borderColor: colors.border, borderRadius: 12, borderWidth: 1, flexDirection: 'row', marginTop: spacing.md, paddingHorizontal: spacing.md }, passwordInput: { flex: 1, fontSize: 16, paddingVertical: spacing.md }, visibilityButton: { justifyContent: 'center', paddingLeft: spacing.sm }, error: { color: '#B42318', marginTop: spacing.md }, message: { color: '#067647', marginTop: spacing.md }, button: { alignItems: 'center', backgroundColor: colors.primary, borderRadius: 12, justifyContent: 'center', marginTop: spacing.lg, minHeight: 52 }, buttonText: { color: '#fff', fontWeight: '700' }, disabled: { opacity: 0.5 }, switch: { color: colors.primary, fontWeight: '700', marginTop: spacing.lg, textAlign: 'center' } });

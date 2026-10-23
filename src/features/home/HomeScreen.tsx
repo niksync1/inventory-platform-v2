@@ -16,12 +16,13 @@ interface HomeScreenProps {
   onAlerts: () => void;
   onTransfers: () => void;
   onPurchasing: () => void;
+  onPublicCatalogue: () => void;
   onOfflineSync: () => void;
   onNotifications: () => void;
   onSignOut: () => Promise<void>;
 }
 
-export function HomeScreen({ onChangeContext, onInventory, onReports, onAlerts, onTransfers, onPurchasing, onOfflineSync, onNotifications, onSignOut }: HomeScreenProps) {
+export function HomeScreen({ onChangeContext, onInventory, onReports, onAlerts, onTransfers, onPurchasing, onPublicCatalogue, onOfflineSync, onNotifications, onSignOut }: HomeScreenProps) {
   const { session } = useAuth();
   const { context, locations } = useTenant();
   const { pendingCount, failedCount, syncing } = useOfflineSync();
@@ -102,6 +103,7 @@ export function HomeScreen({ onChangeContext, onInventory, onReports, onAlerts, 
       <MenuAction icon="notifications-outline" title={activeAlerts ? 'Alerts (' + activeAlerts + ')' : 'Alerts'} onPress={onAlerts} />
       <MenuAction icon="swap-horizontal-outline" title="Transfers" onPress={onTransfers} />
       <MenuAction icon="cart-outline" title="Suppliers & purchasing" onPress={onPurchasing} />
+      {['owner', 'admin', 'manager'].includes(context.membership.role) ? <MenuAction icon="storefront-outline" title="Public catalogue" onPress={onPublicCatalogue} /> : null}
       <MenuAction icon="cloud-offline-outline" title={pendingCount || failedCount ? 'Offline sync (' + (pendingCount + failedCount) + ')' : 'Offline sync'} onPress={onOfflineSync} />
       <MenuAction icon="settings-outline" title="Notifications" onPress={onNotifications} />
       {isOwner && dashboardUrl ? <MenuAction icon="shield-checkmark-outline" title="Admin dashboard" onPress={() => void openAdminDashboard()} /> : null}
