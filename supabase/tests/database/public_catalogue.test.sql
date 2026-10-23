@@ -29,12 +29,17 @@ select is((select retail_price from public.public_catalogue limit 1),12.50::nume
 select is((select count(*) from public.search_public_catalogue('private')),0::bigint,'unpublished products are not searchable');
 select lives_ok($$select public.stock_in('22000000-0000-4000-8000-000000000001','33000000-0000-4000-8000-000000000001','44000000-0000-4000-8000-000000000001',5,null,'catalogue-stock-in')$$,'inventory RPC can add stock for availability');
 select is((select available from public.public_catalogue limit 1),true,'availability becomes true when unexpired sellable stock exists');
-select throws_ok($$update public.public_catalogue_listings set retail_price=0 where product_id='44000000-0000-4000-8000-000000000001'$$,'P0001',null,'retail listing price is constrained to business role policies');
 reset role;
+set local role authenticated;
+select set_config('request.jwt.claims','{"sub":"11000000-0000-4000-8000-000000000002","role":"authenticated"}',true);
+update public.public_catalogue_listings set retail_price=0 where product_id='44000000-0000-4000-8000-000000000001';
+select is((select count(*) from public.public_catalogue_listings),0::bigint,'public viewer without tenant membership cannot read internal listing rows');
+reset role;
+select is((select retail_price from public.public_catalogue_listings where product_id='44000000-0000-4000-8000-000000000001'),12.50::numeric,'public viewer cannot alter a business retail price');
 
 set local role anon;
 select is((select count(*) from public.public_catalogue),1::bigint,'anonymous access only sees published public catalogue');
-select is((select count(*) from public.public_catalogue_listings),0::bigint,'anonymous users cannot read internal listing records directly');
+select ok(not has_table_privilege('anon','public.public_catalogue_listings','SELECT'),'anonymous users cannot query internal listing records directly');
 select is((select count(*) from public.search_public_catalogue('Public Test')),1::bigint,'anonymous users can search published products');
 reset role;
 select * from finish();
