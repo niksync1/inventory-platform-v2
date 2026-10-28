@@ -4,7 +4,8 @@ import { canManageOrders, canReceiveTransfers, canAccessPurchasing, canViewPurch
 import { createOperationId } from '../../core/inventory/operationId';
 import { colors, spacing } from '../../shared/theme';
 import { useTenant } from '../tenancy/TenantProvider';
-import { listProducts, type ProductInventory } from '../inventory/inventoryApi';
+import { findProductByBarcode, listProducts, type ProductInventory } from '../inventory/inventoryApi';
+import { BarcodeScannerScreen } from '../inventory/BarcodeScannerScreen';
 import { createPurchaseOrder, deletePurchaseOrder, listPurchaseOrderItems, listPurchaseOrders, listSuppliers, receivePurchaseOrder, recordSupplierPayment, updatePurchaseOrder, type PurchaseOrder, type PurchaseOrderItem, type Supplier } from './purchasingApi';
 
 type OrderAction = { order: PurchaseOrder; action: 'receive' | 'payment'; item?: PurchaseOrderItem; operationId: string } | null;
@@ -23,7 +24,11 @@ export function PurchasingScreen({ onBack }: { onBack: () => void }) {
   const [showOrderForm,setShowOrderForm]=useState(false);
   const [editingOrderId,setEditingOrderId]=useState<string|null>(null);
   const [selectedSupplierId,setSelectedSupplierId]=useState('');
-  const [selectedProductId,setSelectedProductId]=useState('');
+  const [selectedProduct,setSelectedProduct]=useState<ProductInventory|null>(null);
+  const [productSearch,setProductSearch]=useState('');
+  const [searchResults,setSearchResults]=useState<ProductInventory[]>([]);
+  const [searching,setSearching]=useState(false);
+  const [showScanner,setShowScanner]=useState(false);
   const [lineQuantity,setLineQuantity]=useState('1');
   const [lineCost,setLineCost]=useState('');
   const [draftLines,setDraftLines]=useState<DraftLine[]>([]);
@@ -39,7 +44,7 @@ export function PurchasingScreen({ onBack }: { onBack: () => void }) {
   const [paymentReference,setPaymentReference]=useState('');
   const [paymentNotes,setPaymentNotes]=useState('');
   const location=useMemo(()=>locations.find(item=>item.id===context?.locationId),[context,locations]);
-  const selectedProduct=products.find(product=>product.id===selectedProductId)??products[0];
+  const productQuery=productSearch.trim();
   const activeSuppliers=suppliers.filter(supplier=>supplier.isActive);
   const selectedSupplier=activeSuppliers.find(supplier=>supplier.id===selectedSupplierId)??activeSuppliers[0];
 
@@ -58,24 +63,60 @@ export function PurchasingScreen({ onBack }: { onBack: () => void }) {
       ]);
       setSuppliers(nextSuppliers);setProducts(nextProducts);setOrders(nextOrders);
       if(!selectedSupplierId&&nextSuppliers.length)setSelectedSupplierId(nextSuppliers[0].id);
-      if(!selectedProductId&&nextProducts.length)setSelectedProductId(nextProducts[0].id);
     }catch(caught){setError(caught instanceof Error?caught.message:'Unable to load purchasing data.');}
     finally{setLoading(false);setRefreshing(false);}
-  },[context,selectedProductId,selectedSupplierId]);
+  },[context,selectedSupplierId]);
   useEffect(()=>{void load();},[load]);
-  if(!context)return null;
-  const mayViewOrders=canViewPurchaseOrders(context.membership.role);
-  const visibleTab=mayViewOrders?tab:'suppliers';
+  useEffect(()=>{
+    if(!context)return;
+    const query=productSearch.trim();
+    if(!query){setSearchResults([]);setSearching(false);return;}
+    let cancelled=false;setSearching(true);
+    const timer=setTimeout(()=>{
+      void listProducts(context.tenant.id,context.locationId,query)
+        .then(results=>{if(!cancelled)setSearchResults(results);})
+        .catch(caught=>{if(!cancelled)setError(caught instanceof Error?caught.message:'Unable to search products.');})
+        .finally(()=>{if(!cancelled)setSearching(false);});
+    },300);
+    return ()=>{cancelled=true;clearTimeout(timer);};
+  },[context,productSearch]);
+    if (!context) return null;
+
+  if (showScanner) {
+    return (
+      <BarcodeScannerScreen        
+        onBack={() => setShowScanner(false)}
+        onBarcode={async barcode => {
+          const product = await findProductByBarcode(
+            context.tenant.id,
+            context.locationId,
+            barcode,
+          );
+          if (!product) return false;
+
+          setSelectedProduct(product);
+          setProductSearch('');
+          setSearchResults([]);
+          setShowScanner(false);
+          return true;
+        }}
+      />
+    );
+  }
+
+  const mayViewOrders = canViewPurchaseOrders(context.membership.role);
+  const visibleTab = mayViewOrders ? tab : 'suppliers';
   const mayManage=canManageOrders(context.membership.role);
   const mayReceive=canReceiveTransfers(context.membership.role);
   if(!canAccessPurchasing(context.membership.role))return null;
 
   function addLine(){
+    const product=selectedProduct;
     const qty=Number(lineQuantity),cost=Number(lineCost);
-    if(!selectedProduct){setError('There are no active products to order.');return;}
+    if(!product){setError('Select a product by searching or scanning first.');return;}
     if(!Number.isSafeInteger(qty)||qty<=0||!Number.isFinite(cost)||cost<0||lineCost.trim()===''){setError('Enter a positive whole quantity and a valid unit cost.');return;}
-    setDraftLines(current=>[...current,{product:selectedProduct,quantity:String(qty),unitCost:String(cost)}]);
-    setLineQuantity('1');setLineCost('');setError(null);
+    setDraftLines(current=>[...current,{product,quantity:String(qty),unitCost:String(cost)}]);
+    setLineQuantity('1');setLineCost('');setSelectedProduct(null);setProductSearch('');setSearchResults([]);setError(null);
   }
   async function submitOrder(){
     if(!context||!selectedSupplier){setError('Create or select an active supplier first.');return;}
@@ -103,7 +144,7 @@ export function PurchasingScreen({ onBack }: { onBack: () => void }) {
         if(!product)throw new Error('A product on this order is no longer available.');
         return {product,quantity:String(line.quantityOrdered),unitCost:String(line.unitCost)};
       });
-      setEditingOrderId(order.id);setSelectedSupplierId(order.supplierId);setSelectedProductId(editableLines[0]?.product.id??'');
+      setEditingOrderId(order.id);setSelectedSupplierId(order.supplierId);setSelectedProduct(editableLines[0]?.product??null);setProductSearch('');setSearchResults([]);
       setDraftLines(editableLines);setCurrency(order.currency);setOrderNotes(order.notes??'');setTab('orders');setShowOrderForm(true);
     }catch(caught){setError(caught instanceof Error?caught.message:'Unable to load purchase order for editing.');}
     finally{setBusy(false);}
@@ -171,14 +212,22 @@ export function PurchasingScreen({ onBack }: { onBack: () => void }) {
         {s.paymentTerms?<Text style={styles.body}>Terms: {s.paymentTerms}</Text>:null}
       </View>)}
     </>:<>
-      {mayManage?<Pressable onPress={()=>{setShowOrderForm(v=>{if(!v){setOrderOperationId(createOperationId());setEditingOrderId(null);setDraftLines([]);setOrderNotes('');}else{setEditingOrderId(null);}return !v;});}} style={styles.primary}><Text style={styles.primaryText}>{showOrderForm?'Close order form':editingOrderId?'Edit purchase order':'＋ Create purchase order'}</Text></Pressable>:null}
+      {mayManage?<Pressable onPress={()=>{setShowOrderForm(v=>{if(!v){setOrderOperationId(createOperationId());setEditingOrderId(null);setDraftLines([]);setOrderNotes('');setSelectedProduct(null);setProductSearch('');setSearchResults([]);}else{setEditingOrderId(null);}return !v;});}} style={styles.primary}><Text style={styles.primaryText}>{showOrderForm?'Close order form':editingOrderId?'Edit purchase order':'＋ Create purchase order'}</Text></Pressable>:null}
       {showOrderForm&&mayManage?<View style={styles.card}>
         <Text style={styles.cardTitle}>{editingOrderId?'Edit purchase order':'New purchase order'}</Text>
         <Text style={styles.label}>Supplier</Text>
         {activeSuppliers.map(s=><Choice key={s.id} label={s.name} active={selectedSupplier?.id===s.id} onPress={()=>setSelectedSupplierId(s.id)}/>)}
         {!activeSuppliers.length?<Text style={styles.meta}>Add a supplier before creating an order.</Text>:null}
-        <Text style={styles.label}>Existing product</Text>
-        {products.map(p=><Choice key={p.id} label={p.name} active={selectedProduct?.id===p.id} onPress={()=>setSelectedProductId(p.id)}/>)}
+        <Text style={styles.label}>Product</Text>
+        <View style={styles.searchRow}>
+          <TextInput autoCapitalize="none" placeholder="Search name or barcode" value={productSearch} onChangeText={setProductSearch} style={styles.searchInput}/>
+          <Pressable onPress={()=>setShowScanner(true)} style={styles.scan}><Text style={styles.scanText}>Scan</Text></Pressable>
+        </View>
+        {selectedProduct?<Text style={styles.meta}>Selected: {selectedProduct.name}</Text>:null}
+        {!productQuery&&!selectedProduct?<Text style={styles.meta}>Search by name or barcode, or scan to pick a product.</Text>:null}
+        {productQuery&&searching?<Text style={styles.meta}>Searching…</Text>:null}
+        {productQuery&&!searchResults.length&&!searching?<Text style={styles.meta}>No matching products.</Text>:null}
+        {searchResults.map(p=><Choice key={p.id} label={p.name} active={selectedProduct?.id===p.id} onPress={()=>setSelectedProduct(p)}/>)}
         <Field label="Quantity" value={lineQuantity} onChangeText={setLineQuantity} keyboardType="number-pad" placeholder="1"/>
         <Field label={'Unit cost ('+currency+')'} value={lineCost} onChangeText={setLineCost} keyboardType="decimal-pad" placeholder="0.00"/>
         <Pressable onPress={addLine} style={styles.outline}><Text style={styles.outlineText}>Add product line</Text></Pressable>
@@ -248,5 +297,5 @@ const styles=StyleSheet.create({
  outline:{alignItems:'center',borderColor:colors.primary,borderWidth:1,borderRadius:10,padding:spacing.md,marginTop:spacing.md},outlineText:{color:colors.primary,fontWeight:'700'},
  choice:{borderWidth:1,borderColor:colors.border,borderRadius:9,paddingVertical:spacing.sm,paddingHorizontal:spacing.md,marginTop:spacing.xs,marginRight:spacing.xs},choiceActive:{backgroundColor:colors.primary,borderColor:colors.primary},
  choiceText:{color:colors.text},choiceTextActive:{color:'#fff'},lineRow:{flexDirection:'row',alignItems:'center',justifyContent:'space-between',gap:spacing.sm,borderBottomWidth:1,borderBottomColor:colors.border,paddingVertical:spacing.sm},
- total:{color:colors.text,fontWeight:'700',marginTop:spacing.md},panel:{backgroundColor:colors.background,borderRadius:12,padding:spacing.md,marginTop:spacing.md}
+ total:{color:colors.text,fontWeight:'700',marginTop:spacing.md},panel:{backgroundColor:colors.background,borderRadius:12,padding:spacing.md,marginTop:spacing.md},searchRow:{alignItems:'stretch',flexDirection:'row',gap:spacing.sm,marginTop:spacing.xs},searchInput:{backgroundColor:colors.background,borderColor:colors.border,borderWidth:1,borderRadius:10,color:colors.text,flex:1,fontSize:15,padding:spacing.md},scan:{alignItems:'center',backgroundColor:colors.primary,borderRadius:10,justifyContent:'center',paddingHorizontal:spacing.md},scanText:{color:'#fff',fontWeight:'700'}
 });
