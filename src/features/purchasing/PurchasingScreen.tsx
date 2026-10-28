@@ -29,11 +29,6 @@ export function PurchasingScreen({ onBack }: { onBack: () => void }) {
   const [searchResults,setSearchResults]=useState<ProductInventory[]>([]);
   const [searching,setSearching]=useState(false);
   const [showScanner,setShowScanner]=useState(false);
-  const [selectedProduct,setSelectedProduct]=useState<ProductInventory|null>(null);
-  const [productSearch,setProductSearch]=useState('');
-  const [searchResults,setSearchResults]=useState<ProductInventory[]>([]);
-  const [searching,setSearching]=useState(false);
-  const [showScanner,setShowScanner]=useState(false);
   const [lineQuantity,setLineQuantity]=useState('1');
   const [lineCost,setLineCost]=useState('');
   const [draftLines,setDraftLines]=useState<DraftLine[]>([]);
@@ -49,7 +44,6 @@ export function PurchasingScreen({ onBack }: { onBack: () => void }) {
   const [paymentReference,setPaymentReference]=useState('');
   const [paymentNotes,setPaymentNotes]=useState('');
   const location=useMemo(()=>locations.find(item=>item.id===context?.locationId),[context,locations]);
-  const productQuery=productSearch.trim();
   const productQuery=productSearch.trim();
   const activeSuppliers=suppliers.filter(supplier=>supplier.isActive);
   const selectedSupplier=activeSuppliers.find(supplier=>supplier.id===selectedSupplierId)??activeSuppliers[0];
@@ -118,13 +112,9 @@ export function PurchasingScreen({ onBack }: { onBack: () => void }) {
 
   function addLine(){
     const product=selectedProduct;
-    const product=selectedProduct;
     const qty=Number(lineQuantity),cost=Number(lineCost);
     if(!product){setError('Select a product by searching or scanning first.');return;}
-    if(!product){setError('Select a product by searching or scanning first.');return;}
     if(!Number.isSafeInteger(qty)||qty<=0||!Number.isFinite(cost)||cost<0||lineCost.trim()===''){setError('Enter a positive whole quantity and a valid unit cost.');return;}
-    setDraftLines(current=>[...current,{product,quantity:String(qty),unitCost:String(cost)}]);
-    setLineQuantity('1');setLineCost('');setSelectedProduct(null);setProductSearch('');setSearchResults([]);setError(null);
     setDraftLines(current=>[...current,{product,quantity:String(qty),unitCost:String(cost)}]);
     setLineQuantity('1');setLineCost('');setSelectedProduct(null);setProductSearch('');setSearchResults([]);setError(null);
   }
@@ -154,7 +144,6 @@ export function PurchasingScreen({ onBack }: { onBack: () => void }) {
         if(!product)throw new Error('A product on this order is no longer available.');
         return {product,quantity:String(line.quantityOrdered),unitCost:String(line.unitCost)};
       });
-      setEditingOrderId(order.id);setSelectedSupplierId(order.supplierId);setSelectedProduct(editableLines[0]?.product??null);setProductSearch('');setSearchResults([]);
       setEditingOrderId(order.id);setSelectedSupplierId(order.supplierId);setSelectedProduct(editableLines[0]?.product??null);setProductSearch('');setSearchResults([]);
       setDraftLines(editableLines);setCurrency(order.currency);setOrderNotes(order.notes??'');setTab('orders');setShowOrderForm(true);
     }catch(caught){setError(caught instanceof Error?caught.message:'Unable to load purchase order for editing.');}
@@ -223,7 +212,6 @@ export function PurchasingScreen({ onBack }: { onBack: () => void }) {
         {s.paymentTerms?<Text style={styles.body}>Terms: {s.paymentTerms}</Text>:null}
       </View>)}
     </>:<>
-      {mayManage?<Pressable onPress={()=>{setShowOrderForm(v=>{if(!v){setOrderOperationId(createOperationId());setEditingOrderId(null);setDraftLines([]);setOrderNotes('');setSelectedProduct(null);setProductSearch('');setSearchResults([]);}else{setEditingOrderId(null);}return !v;});}} style={styles.primary}><Text style={styles.primaryText}>{showOrderForm?'Close order form':editingOrderId?'Edit purchase order':'＋ Create purchase order'}</Text></Pressable>:null}
       {mayManage?<Pressable onPress={()=>{setShowOrderForm(v=>{if(!v){setOrderOperationId(createOperationId());setEditingOrderId(null);setDraftLines([]);setOrderNotes('');setSelectedProduct(null);setProductSearch('');setSearchResults([]);}else{setEditingOrderId(null);}return !v;});}} style={styles.primary}><Text style={styles.primaryText}>{showOrderForm?'Close order form':editingOrderId?'Edit purchase order':'＋ Create purchase order'}</Text></Pressable>:null}
       {showOrderForm&&mayManage?<View style={styles.card}>
         <Text style={styles.cardTitle}>{editingOrderId?'Edit purchase order':'New purchase order'}</Text>
@@ -319,6 +307,5 @@ const styles=StyleSheet.create({
  outline:{alignItems:'center',borderColor:colors.primary,borderWidth:1,borderRadius:10,padding:spacing.md,marginTop:spacing.md},outlineText:{color:colors.primary,fontWeight:'700'},
  choice:{borderWidth:1,borderColor:colors.border,borderRadius:9,paddingVertical:spacing.sm,paddingHorizontal:spacing.md,marginTop:spacing.xs,marginRight:spacing.xs},choiceActive:{backgroundColor:colors.primary,borderColor:colors.primary},
  choiceText:{color:colors.text},choiceTextActive:{color:'#fff'},lineRow:{flexDirection:'row',alignItems:'center',justifyContent:'space-between',gap:spacing.sm,borderBottomWidth:1,borderBottomColor:colors.border,paddingVertical:spacing.sm},
- total:{color:colors.text,fontWeight:'700',marginTop:spacing.md},panel:{backgroundColor:colors.background,borderRadius:12,padding:spacing.md,marginTop:spacing.md},searchRow:{alignItems:'stretch',flexDirection:'row',gap:spacing.sm,marginTop:spacing.xs},searchInput:{backgroundColor:colors.background,borderColor:colors.border,borderWidth:1,borderRadius:10,color:colors.text,flex:1,fontSize:15,padding:spacing.md},scan:{alignItems:'center',backgroundColor:colors.primary,borderRadius:10,justifyContent:'center',paddingHorizontal:spacing.md},scanText:{color:'#fff',fontWeight:'700'}
  total:{color:colors.text,fontWeight:'700',marginTop:spacing.md},panel:{backgroundColor:colors.background,borderRadius:12,padding:spacing.md,marginTop:spacing.md},searchRow:{alignItems:'stretch',flexDirection:'row',gap:spacing.sm,marginTop:spacing.xs},searchInput:{backgroundColor:colors.background,borderColor:colors.border,borderWidth:1,borderRadius:10,color:colors.text,flex:1,fontSize:15,padding:spacing.md},scan:{alignItems:'center',backgroundColor:colors.primary,borderRadius:10,justifyContent:'center',paddingHorizontal:spacing.md},scanText:{color:'#fff',fontWeight:'700'}
 });
