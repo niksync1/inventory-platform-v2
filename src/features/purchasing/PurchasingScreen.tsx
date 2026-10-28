@@ -85,8 +85,6 @@ export function PurchasingScreen({ onBack }: { onBack: () => void }) {
   if (showScanner) {
     return (
       <BarcodeScannerScreen
-        backLabel="‹ Purchasing"
-        permissionBackLabel="Back to purchasing"
         onBack={() => setShowScanner(false)}
         onBarcode={async barcode => {
           const product = await findProductByBarcode(
