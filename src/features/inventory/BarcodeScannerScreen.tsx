@@ -3,7 +3,7 @@ import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-nati
 import { CameraView, useCameraPermissions, type BarcodeScanningResult } from 'expo-camera';
 import { colors, spacing } from '../../shared/theme';
 
-export function BarcodeScannerScreen({ onBack, onBarcode }: { onBack: () => void; onBarcode: (barcode: string) => Promise<boolean> }) {
+export function BarcodeScannerScreen({ onBack, onBarcode, backLabel = '‹ Inventory', permissionBackLabel = 'Back to inventory' }: { onBack: () => void; onBarcode: (barcode: string) => Promise<boolean>; backLabel?: string; permissionBackLabel?: string }) {
   const [permission, requestPermission] = useCameraPermissions();
   const [scanning, setScanning] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
@@ -22,10 +22,10 @@ export function BarcodeScannerScreen({ onBack, onBarcode }: { onBack: () => void
   }
 
   if (!permission) return <ActivityIndicator color={colors.primary} style={styles.loader} />;
-  if (!permission.granted) return <View style={styles.permission}><Text style={styles.title}>Camera access</Text><Text style={styles.body}>Allow camera access to scan medicine barcodes.</Text><Pressable onPress={() => void requestPermission()} style={styles.primary}><Text style={styles.primaryText}>Allow camera</Text></Pressable><Pressable onPress={onBack}><Text style={styles.link}>Back to inventory</Text></Pressable></View>;
+  if (!permission.granted) return <View style={styles.permission}><Text style={styles.title}>Camera access</Text><Text style={styles.body}>Allow camera access to scan medicine barcodes.</Text><Pressable onPress={() => void requestPermission()} style={styles.primary}><Text style={styles.primaryText}>Allow camera</Text></Pressable><Pressable onPress={onBack}><Text style={styles.link}>{permissionBackLabel}</Text></Pressable></View>;
 
   return <View style={styles.screen}><CameraView barcodeScannerSettings={{ barcodeTypes: ['ean13', 'ean8', 'upc_a', 'upc_e', 'code128', 'code39', 'qr'] }} onBarcodeScanned={scanning ? undefined : result => void handleScan(result)} style={StyleSheet.absoluteFill} />
-    <View style={styles.overlay}><View style={styles.top}><Pressable onPress={onBack} style={styles.back}><Text style={styles.backText}>‹ Inventory</Text></Pressable><Text style={styles.cameraTitle}>Scan barcode</Text><Text style={styles.cameraBody}>Place the barcode inside the frame.</Text></View><View style={styles.frame} />
+    <View style={styles.overlay}><View style={styles.top}><Pressable onPress={onBack} style={styles.back}><Text style={styles.backText}>{backLabel}</Text></Pressable><Text style={styles.cameraTitle}>Scan barcode</Text><Text style={styles.cameraBody}>Place the barcode inside the frame.</Text></View><View style={styles.frame} />
       <View style={styles.bottom}>{scanning ? <ActivityIndicator color="#fff" /> : null}{message ? <><Text style={styles.message}>{message}</Text><Text style={styles.cameraBody}>Keep scanning or search by name.</Text></> : null}</View></View>
   </View>;
 }
